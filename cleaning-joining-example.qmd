@@ -1,0 +1,199 @@
+---
+title: "Cleaning and Joining Data from FishBase and IUCN RedList in R"
+author: "Elke Windschitl"
+date: "2022-12-09"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+Description: In this qmd, I showcase how to access, clean, and join data from FishBase and the IUCN Red List.
+
+## Introduction
+
+As a data scientist, it is frequently necessary to join data from two or more sources. Sometimes this can be trickier than others depending on the state of the original data sources. Here, I will access data from FishBase and the The International Union for Conservation of Nature (IUCN) Red List. Luckily, these data sources already have fairly thoughtful layouts and clean data. Both data sources have quite a lot of data on fish and other animal species, so I will need to select and filter for what I am interested in. Here, I am interested in fish in Hawaii. This data accessing, cleaning, and join, was done in preparation for a logistic regression analysis to [identify key traits in Hawaiian fish that predict risk of extinction](https://elkewind.github.io/posts/2022-12-02-hawaiian-fish-analysis/) (Not shown here).
+
+## The Data
+
+I use the IUCN Red List data accessed via the IUCN Red List API ^1^ and package rredlist. The Red List categorizes species by Not Evaluated, Data Deficient, Least Concern, Near Threatened, Vulnerable, Endangered, Critically Endangered, Extinct in the Wild and Extinct. Extinct species were not evaluated in this analysis. The IUCN Red List data are limited in that many marine species have not been listed yet or have been identified as too data deficient to be evaluated.
+
+Fish ecological data were accessed from FishBase ^2^ via package rfishbase. Different species in the FishBase data were originally described by different people, possibly leading to errors or biases.
+
+## Methods
+
+To get started, there are several packages I will be using. I will use *rfishbase* to access the FishBase data, *rredlist* to access the IUCN Red List data, *tidyverse* for data cleaning and joining, *janitor* for data cleaning, and *knitr* for displaying data tables.
+
+```{r}
+# Load libraries
+library(rfishbase)
+library(tidyverse)
+library(rredlist)
+library(janitor)
+library(knitr)
+```
+
+I access the species and country data from FishBase. I filter for fish in Hawaii then join the species information to the Hawaiian fish with a left join.
+
+```{r}
+# Load all species in FishBase
+species <- fb_tbl("species") %>% 
+  janitor::clean_names()
+  species %>% 
+    select(-"comments") %>% 
+    head() %>% kable()
+
+# Load all species by country
+country <- fb_tbl("country") %>% 
+  janitor::clean_names() 
+country %>% 
+  select(-"comments") %>% 
+  head() %>% kable()
+
+# Find all species that might live in Hawaii
+hi_fish_c <- country %>% 
+  filter(c_code == "840B") # Found in documentation
+hi_fish_c %>% 
+  select(-"comments") %>% 
+  head() %>% kable()
+  
+# Join hi_fish with species info
+hi_fish <- left_join(hi_fish_c, species, by = "spec_code") 
+```
+
+I do some cleaning, isolate the species list, and further explore what is offered in FishBase. FishBase has a LOT of information available. I want to add some ecological and common name information to my data frame of Hawaiian fish. Then, I select for the columns and rows I need for my later analysis that contain currently present fish in Hawaii and their ecological traits of interest.
+
+```{r}
+# Concatenate Genus and Species
+hi_fish$genus_species <- paste(hi_fish$genus, hi_fish$species)
+hi_fish <- hi_fish %>% relocate(genus_species, .after = spec_code) %>% 
+  relocate(length, weight, .after = genus_species)
+
+# Isolate list of species
+hi_species_list <- as.character(hi_fish$genus_species)
+
+# Check out what is available in the various tables
+tables <- docs()
+ecology <- fb_tbl("ecology")
+com_names <- fb_tbl("comnames")
+
+# Grab the ecological traits I'm looking for with my Hawaiian species list
+hi_ecol <- ecology(species_list = hi_species_list, 
+                   fields = c("SpecCode", "CoralReefs", "FeedingType", "Schooling")) %>% 
+  clean_names()# Theres duplicates here but I remove them later
+hi_ecol %>% head() %>% kable()
+# Grab the common names I'm looking for with my Hawaiian species list
+hi_com_names <- common_names(species_list = hi_species_list,
+                             fields = c("SpecCode", "ComName")) %>% 
+  clean_names() 
+hi_com_names %>% head() %>% kable()
+
+# Check to see if any hi_ecol species are duplicated, then remove the duplicate
+sum(duplicated(hi_ecol$spec_code))
+duplicated_species <- hi_ecol$spec_code[duplicated(hi_ecol$spec_code)]
+hi_ecol[hi_ecol$spec_code %in% duplicated_species, ]
+hi_ecol <- hi_ecol[!duplicated(hi_ecol$spec_code), ]
+sum(duplicated(hi_ecol$spec_code))
+
+# Combine data sets then select and filter
+hi_fish_chars <- left_join(hi_fish, hi_ecol, by = "spec_code") %>% 
+  select(c("spec_code", "genus_species", "length", "l_type_max_m", "weight", 
+           "status", "current_presence", "genus", "species", "importance.y", 
+           "price_categ", "coral_reefs", "feeding_type", "schooling")) %>% 
+  filter(current_presence == "present") %>% # Data frame full of fish characteristics
+  rename(length_cm = length) 
+hi_fish_chars %>% head() %>% kable()
+```
+
+Next, I access the IUCN Red List data through the IUCN Red List API. I load the entire list of Red List species in 16 requests -- the number of available pages at the time of this analysis.
+
+```{r}
+# Identify token for accessing IUCN API
+iucn_token <- Sys.getenv("IUCN_KEY")
+
+# Create an empty list to store the data frames
+species_list <- list()
+
+# Import all species on IUCN Redlist
+for (i in 0:15) {
+  # Get data from API and assign to a variable with a name
+  species_list[[i + 1]] <- rl_sp(page = i, key = iucn_token)$result
+}
+
+# Combine all data frames into one and select only columns I need
+all_iucn_species <- do.call(rbind, species_list) %>% 
+  select(c("scientific_name",
+           "category",
+           "main_common_name")) %>% 
+  rename(genus_species = scientific_name) 
+all_iucn_species %>% head() %>% kable()
+```
+
+Now I have a large data frame with all species on the Red List, their status, and their common name. I don't need ALL species, though, so I need to combine these data with my Hawaii fish data from FishBase. I do this by left joining the Red List data to the Hawaii fish characteristics. I remove species that show up multiple times in the Red List data and might not be reliable.
+
+```{r}
+# Join data
+hi_fish_status <- left_join(hi_fish_chars, all_iucn_species,
+                            by = "genus_species") # Duplicate rows introduced
+
+# Identify which rows are here multiple times
+status_unique <- as.data.frame(table(hi_fish_status$spec_code)) %>% 
+  setNames(c("spec_code", "freq")) %>% 
+  filter(!freq != 1) # remove rows w freq > 1
+#view(status_unique)
+
+# Recombine with status df
+hi_fish_status$spec_code <- as.factor(hi_fish_status$spec_code)
+hi_fish_status <- left_join(status_unique, hi_fish_status, 
+                            by = "spec_code")
+hi_fish_status %>% head() %>% kable()
+```
+
+I remove columns where fish were data deficient or not assessed. Then, consistent with Munstermann et al., living species listed as ‘Vulnerable’, ‘Endangered’, or ‘Critically Endangered’ were categorized as ‘Threatened’. Living species listed as ‘Least Concern’ and ‘Near Threatened’ were categorized as ‘Nonthreatened’ ^3^.
+
+```{r}
+# Drop all rows with na values of interest
+hi_status_drop_na <- hi_fish_status %>% 
+  filter(!category == "NA") %>% 
+  filter(!category == "DD")
+
+# Make a binary column with 1 as some level of concern and 0 as least concern
+tidy_fish_data <- hi_status_drop_na %>% 
+  mutate(is_of_concern = case_when(category == "CR" | 
+                                     category == "EN" |
+                                     category == "VU" ~ 1,
+                                   category == "LR/nt" |
+                                     category == "NT" |
+                                     category == "LC" ~ 0)) %>% 
+  mutate(coral_reefs = coral_reefs * - 1) %>% 
+  mutate(reef_associated = case_when(coral_reefs == 1 ~ "yes",
+                                     coral_reefs == 0 ~ "no")) %>% 
+  mutate(is_endemic = case_when(status == "endemic" ~ "yes",
+                                status == "native" |
+                                  status == "introduced" ~ "no")) %>% 
+  select(-c("freq"))
+```
+
+## Results
+
+```{r}
+hi_status_drop_na %>% 
+  arrange(genus_species) %>% 
+  slice_head(n = 20) %>% kable()
+```
+
+## Conclusion
+
+Now I have a data frame of extant fish species in Hawaii, whether or not they are threatened, and some of their associated characteristics. These data are ready for logistic regression or classification analyses. The data are ready to be exported and are much smaller than all of the existing data in FishBase and the Red List.
+
+## Sources
+
+^1^ “IUCN,” IUCN Red List of Threatened Species. Version 2022-1, 2022. https://www.iucnredlist.org/ (accessed Dec. 02, 2022).
+
+^2^ R. Froese and D. Pauly, “FishBase,” 2022. www.fishbase.org
+
+^3^ B. J. Cardinale et al., “Biodiversity loss and its impact on humanity,” Nature, vol. 486, no. 7401, Art. no. 7401, Jun. 2012, doi: 10.1038/nature11148. [3] M. J. Munstermann et al., “A global ecological signal of extinction risk in terrestrial vertebrates,” Conserv. Biol., vol. 36, no. 3, p. e13852, 2022, doi: 10.1111/cobi.13852.

@@ -1,0 +1,12 @@
+- source: raster-masking-example.qmd
+  quarto-pub:
+    - id: 02bce6db-6428-4324-aab2-baaaa68e8f05
+      url: 'https://elkewind.quarto.pub/creating-a-mask-for-raster-data-in-r'
+- source: cleaning-joining-example.qmd
+  quarto-pub:
+    - id: d872c016-1e26-40a9-8bf3-52c735710f46
+      url: 'https://elkewind.quarto.pub/cleaning-and-joining-data-from-fishbase-and-iucn-redlist'
+- source: boosting-sdm.qmd
+  quarto-pub:
+    - id: e9053691-6b7d-49fc-a637-74b8bff9c89b
+      url: 'https://elkewind.quarto.pub/boosting-as-a-species-distribution-model-in-r'

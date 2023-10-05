@@ -3,7 +3,7 @@ title: "Creating a Mask for Raster Data in R"
 author: "Elke Windschitl"
 date: "2023-09-29"
 format: html
-editor: visual
+editor: source
 ---
 
 ```{r setup, include=FALSE}
@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE,
                       message = FALSE)
 ```
 
-Description: In this Rmd, I showcase how to create a mask for raster data and apply that mask to depth data in the Santa Barbara Channel.
+Description: In this qmd, I showcase how to create a mask for raster data and apply that mask to depth data in the Santa Barbara Channel.
 
 ## Introduction
 
@@ -30,7 +30,7 @@ The original data source is described as: This layer provides an initial offerin
 
 In late 1996, the Dept of Conservation (DOC) surveyed state and federal agencies about the county boundary coverage they used. As a result, DOC adopted the 1:24,000 (24K) scale U.S. Bureau of Reclamation (USBR) dataset (USGS source) for their Farmland Mapping and Monitoring Program (FMMP) but with several modifications. Detailed documentation of these changes is provided by FMMP and included in the lineage section of the metadata.
 
-A dataset was made available (approximately 2004) through CALFIRE - FRAP and the California Spatial Information Library (CaSIL), with additional updates throughout subsequent years. More recently, an effort was made to improve the coastal linework by using the previous interior linework from the 24k data, but replacing the coastal linework based on NOAA's ERMA coastal dataset (which used NAIP 2010). 
+A dataset was made available (approximately 2004) through CALFIRE - FRAP and the California Spatial Information Library (CaSIL), with additional updates throughout subsequent years. More recently, an effort was made to improve the coastal linework by using the previous interior linework from the 24k data, but replacing the coastal linework based on NOAA's ERMA coastal dataset (which used NAIP 2010).
 
 In this dataset, all bays (plus bay islands and constructed features) are merged into the mainland, and coastal features (such as islands and constructed features) are not included, with the exception of the Channel Islands which ARE included.
 
@@ -131,7 +131,7 @@ mapview(raster(depth_dat),
         layer.name = "Depth-Elevation (m)")
 ```
 
-The depth data covers the area I am interested in. However, the [ETOPO User Guide](https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2022/docs/1.2%20ETOPO%202022%20User%20Guide.pdf) mentions that the data come with "an accompanying “geoid” tile for converting EGM2008 geoid heights into WGS84 ellipsoid elevation heights (EPSG:4979). Since most other geoid, ellipsoid, and/or tidal vertical datums are defined by grids in reference to the WGS84 ellipsoid, this eases the conversion of ETOPO 2022 tiles into other vertical reference datums of the user’s choice." We will do that here following their guidelines. My AOI is split by two tiles, so I will need to use both and combine them.
+The depth data covers the area I am interested in. However, the [ETOPO User Guide](https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2022/docs/1.2%20ETOPO%202022%20User%20Guide.pdf) mentions that the data come with "an accompanying "geoid" tile for converting EGM2008 geoid heights into WGS84 ellipsoid elevation heights (EPSG:4979). Since most other geoid, ellipsoid, and/or tidal vertical datums are defined by grids in reference to the WGS84 ellipsoid, this eases the conversion of ETOPO 2022 tiles into other vertical reference datums of the user's choice." We will do that here following their guidelines. My AOI is split by two tiles, so I will need to use both and combine them.
 
 ```{r}
 # Read in Geoid tiles for depth correction
@@ -206,4 +206,3 @@ mapview(raster(resampled_depth),
 ## Conclusion
 
 A mask is a great way to standardize multiple raster datasets for combining. While this example shows one masking process, this process could be applied to numerous datasets with the same mask. Once data are standardized, they can be combined into a stack or a brick to be used for future analyses. Read the [kelpGeoMod technical documentation](https://github.com/kelpGeoMod/kelpGeoMod-capstone-project/blob/main/04-README-images/technical-doc.pdf) to understand at length how this project standardized the spatiotemporal resolution of many datasets in preparation for kelp forest modeling.
-
