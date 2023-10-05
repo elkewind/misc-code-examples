@@ -1,0 +1,624 @@
+---
+title: "ML Model Comparison for Fish Threat in R"
+author: "Elke Windschitl"
+date: "2022-12-09"
+format: html
+editor: source
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+Description: In this qmd, I evaluate different machine learning algorithms for predicting IUCN Red List status of fish based on ecological and morphological characteristics. These characteristics were retrieved from FishBase and joined with the IUCN data in a separate script.
+
+## Introduction
+
+Global human activity threatens many species with extinction. According to the International Union and Conservation of Nature (IUCN), “More than 41,000 species are threatened with extinction. That is still 28% of all assessed species.” [1]. Increased extinction and loss of biodiversity can have severe ecological, economic, and cultural impacts. Cardinale et al.’s deep dive into biodiversity and ecosystem services research conclude that biodiversity loss reduces ecological communities’ efficiency, stability, and productivity. Decreased productivity from ecosystem services can have a negative impact on ecosystem economics [2]. Additionally, cultures worldwide have strong ties to local flora and fauna, much of which now face extinction risk. Improving understanding of extinction risk is ecologically, economically, and culturally important.
+
+Wildlife scientists have been working to understand what ecological traits of vertebrates predict threat level, and what common risk factors drive those threat level rates. Munstermann et al. investigate what terrestrial vertebrate functional groups are most at risk of extinction threat and find that cave dwelling amphibian, arboreal quadrupedal mammals, aerial and scavenging birds, and pedal squamates are at high risk [3]. This knowledge can help inform policies and practices with the goal to decrease threats of extinction of wildlife. However, less comprehensive research has been done to conduct similar analyses on marine species.
+
+The IUCN Red List has many species that are listed as "Data Deficient" or "Not Evaluated". Filling in these data gaps is extremely important when it comes to conservation. In marine species, evaluating these populations can prove challenging. It can be helpful to build off of existing knowledge to inform where evaluation resources should be spent. Here, I propose to build a machine learning model that predicts binary Red List status of saltwater fish based on their ecological and morphological traits according to FishBase. I then apply the most successful model to Red List Data Deficient and Not Evaluated species. 
+
+This work builds off of my previous work [Identifying Key Traits in Hawaiian Fish that Predict Risk of Extinction](https://elkewind.github.io/posts/2022-12-02-hawaiian-fish-analysis/). However, here I am looking at all fish listed on the IUCN Red List -- not just those in Hawaii -- and I am using a Tidymodels machine learning approach.
+
+## The Data
+
+For my analyses I use the IUCN Red List data accessed via the IUCN Red List API [1] and package rredlist [4]. Consistent with Munstermann et al., living species listed as ‘Vulnerable’, ‘Endangered’, or ‘Critically Endangered’ were categorized as ‘Threatened’. Living species listed as ‘Least Concern’ and ‘Near Threatened’ were categorized as ‘Nonthreatened’ [3]. The IUCN Red List data are limited in that many marine species have not been listed yet or have been identified as too data deficient to be evaluated. The lack of data on elusive fish may introduce bias into the models.
+
+Fish ecological data were accessed from FishBase [5] via package rfishbase [6]. Different species in the FishBase data were originally described by different people, possibly leading to errors or biases. Measurement errors in length may be present, as there are various common ways to measure the length of a fish. The species recorded in FishBase may be biased towards fish with commercial value. Data were wrangled in R and formatted in a tidy data table with the following variables.
+
+```{r include=FALSE}
+library(tidyverse)
+library(knitr)
+# Read in data
+fish_dat <- read_csv("/Users/elkewindschitl/Documents/data-sci/fish_data.csv") %>%
+  filter(!is.na(IsOfConcern)) %>% 
+  slice_head(n = 10) %>% 
+  kable()
+```
+
+## Methods
+
+To get started, there are several packages I will be using. *Tidyverse* helps with further cleaning and preparing data. *Tidymodels* has all of what I need for the Machine Learning steps. *kknn* helps me build my knn model. *hrbrthemes* and *viridis* are used to quickly make aesthetically pleasing looking figures. *knitr* is used to create kable tables. *baguette* is used in my bagging model. *doParallel* allows for parallel computing on my laptop. *vip* helps to identify variable importance.
+
+```{r}
+# Load libraries
+library(tidyverse)
+library(tidymodels)
+#library(rsample)   
+#library(recipes)
+#library(skimr)
+library(kknn)
+library(hrbrthemes)
+library(viridis)
+library(knitr)
+#library(workflows)
+library(baguette)
+library(doParallel)
+#library(forcats)
+#library(glmnet)
+library(vip)
+```
+
+First I read in the data. These data were cleaned and joined in a separate script, but they will still need a bit of preprocessing. The outcome variable in this dataset is labeled IsOfConcern and indicates if the species is at risk or extinction (1) or not (0). I start out by exploring the data dimensions. 
+
+```{r}
+# Read in data
+fish_dat_full <- read_csv("/Users/elkewindschitl/Documents/data-sci/fish_data.csv") 
+fish_dat <- fish_dat_full %>%
+  filter(!is.na(IsOfConcern)) # remove columns that don't have outcome variable
+
+# Explore some characteristics of the dataset
+ncol(fish_dat)
+nrow(fish_dat)
+fish_dat %>% 
+  group_by(IsOfConcern) %>%
+  count()
+```
+
+There are a lot on NA values in this dataset. I have a lot of columns already, so I can reduce that by removing columns that have a high proportion of NA values.
+
+```{r}
+# Calculate the proportion of NA values in each column
+na_proportion <- colMeans(is.na(fish_dat), na.rm = TRUE)
+#I want to remove rows with extreme NA counts (more than 45%)
+# Define the threshold (45% or 0.45)
+threshold <- 0.45
+# Find columns with more than the threshold proportion of NA values
+columns_meeting_threshold <- names(na_proportion[na_proportion <= threshold])
+
+# Print the column names that meet the threshold
+print(columns_meeting_threshold)
+
+fish_short <- fish_dat %>% 
+  select(all_of(columns_meeting_threshold))
+```
+
+### Data prep
+
+```{r}
+# Find character columns that need to be converted to factor
+unique_values <- sapply(fish_short, class)
+# Print unique values for each column
+#print(unique_values)
+# List of character columns to convert to factors
+character_columns_to_convert <- c("GenusSpecies", "BodyShapeI", "DemersPelag", "AirBreathing", "PriceCateg", "UsedforAquaculture", "Dangerous", "Electrogenic", "OperculumPresent", "MainCommonName")
+
+# Convert the specified character columns to factors
+fish <- fish_short %>%
+  mutate(across(all_of(character_columns_to_convert), as.factor))
+sapply(fish, class)
+
+# If feature is a factor DON'T order
+fish <- fish %>% mutate_if(is.ordered, .funs = factor, ordered = F)  %>% 
+  select(-GenusSpecies) %>% 
+  select(-SpecCode) %>% 
+  select(-MainCommonName)
+# Make outcome factor
+fish$IsOfConcern <- as.factor(fish$IsOfConcern)
+```
+
+```{r}
+# Calculate dummy classifier for baseline comparison
+
+# Calculate the number of rows where IsOfConcern is 0
+num_is_0 <- sum(fish$IsOfConcern == 0)
+
+# Calculate the number of rows where IsOfConcern is not 0 (other class)
+num_is_not_0 <- nrow(fish) - num_is_0
+
+# Calculate the accuracy of the dummy classifier (always predicting the majority class)
+dummy <- num_is_0 / nrow(fish)
+```
+
+### Lasso for Classification
+
+```{r}
+set.seed(1234)
+# Initial split of data, default 70/30
+fish_l_split <- initial_split(fish, prop = 0.7, strata = IsOfConcern)  # Specify 'prop' for the split ratio
+fish_l_train <- training(fish_l_split)  # Training data
+fish_l_test <- testing(fish_l_split)    # Test data
+
+unique_vals_train_l <- sapply(fish_l_train, class)
+unique_vals_test_l <- sapply(fish_l_test, class)
+```
+
+```{r}
+#Preprocess the data
+#Should be able to use all training data for this algorithm despite na values
+fish_l_recipe <- recipe(IsOfConcern~., data = fish_l_train) %>% 
+  step_impute_mean(all_numeric(), -all_outcomes()) %>%  # Impute missing numeric values with means
+  step_impute_mode(all_factor(), -all_outcomes()) %>%  # Impute missing categorical values with modes
+  step_naomit(all_predictors()) %>% 
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_zv(all_predictors()) %>%  # Remove zero variance columns
+  step_normalize(all_numeric(), -all_outcomes()) 
+
+wf_l <- workflow() %>%
+  add_recipe(fish_l_recipe)
+```
+
+```{r}
+set.seed(1234)
+fish_l_boot <- bootstraps(fish_l_train)
+
+tune_l_spec <- logistic_reg(penalty = tune(), mixture = 1) %>%
+  set_engine("glmnet")
+
+lambda_grid <- grid_regular(penalty(), levels = 50)
+```
+
+```{r}
+doParallel::registerDoParallel()
+
+set.seed(1234)
+lasso_grid <- tune_grid(
+  wf_l %>% add_model(tune_l_spec),
+  resamples = fish_l_boot,
+  grid = lambda_grid
+)
+
+lasso_grid %>%
+  collect_metrics()
+
+lasso_grid %>%
+  collect_metrics() %>%
+  ggplot(aes(penalty, mean, color = .metric)) +
+  geom_errorbar(aes(
+    ymin = mean - std_err,
+    ymax = mean + std_err
+  ),
+  alpha = 0.5
+  ) +
+  geom_line(size = 1.5) +
+  facet_wrap(~.metric, scales = "free", nrow = 2) +
+  scale_x_log10() +
+  theme(legend.position = "none")
+```
+
+```{r}
+best_lasso <- lasso_grid %>%
+  select_best("accuracy")
+
+final_lasso <- finalize_workflow(
+  wf_l %>% add_model(tune_l_spec),
+  best_lasso
+)
+```
+
+```{r}
+final_lasso %>%
+  fit(fish_l_train) %>%
+  pull_workflow_fit() %>%
+  vi(lambda = best_lasso$penalty) %>%
+  mutate(
+    Importance = abs(Importance),
+    Variable = fct_reorder(Variable, Importance)
+  ) %>%
+  ggplot(aes(x = Importance, y = Variable, fill = Sign)) +
+  geom_col() +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = NULL)
+```
+
+```{r}
+final_lasso_fit <- last_fit(final_lasso, fish_l_split) %>%
+  collect_metrics()
+
+final_lasso_accuracy <- final_lasso_fit %>%
+  filter(.metric == "accuracy") %>%
+  pull(.estimate)
+```
+
+
+### K-Nearest Neighbor
+
+```{r}
+
+# For a KNN model we need to remove any row with na values, possible decreasing the power of the model.
+fish_no_missing <-  fish[complete.cases(fish), ]
+fish_no_missing %>% 
+  group_by(IsOfConcern) %>%
+  count()
+
+set.seed(123)
+#initial split of data, default 70/30
+fish_knn_split <- initial_split(fish_no_missing, 
+                                prop = 0.7,
+                                strata = IsOfConcern)
+fish_knn_test <- testing(fish_knn_split)
+fish_knn_train <- training(fish_knn_split)
+
+```
+
+
+```{r}
+# Preprocessing
+fish_knn_recipe <- recipe(IsOfConcern ~ ., data = fish_knn_train) %>% # IsOfConcern is outcome variable, use all variables
+  step_zv(all_predictors()) %>%  # Remove zero variance columns
+  #step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% # normalize for knn model
+  prep()
+
+# Bake
+fish_knn_train <- bake(fish_knn_recipe, fish_knn_train)
+fish_knn_test <- bake(fish_knn_recipe, fish_knn_test)
+```
+
+```{r}
+set.seed(123)
+# 10-fold CV on the training dataset
+cv_folds <-fish_knn_train %>% 
+  vfold_cv(v=10,
+           strata = IsOfConcern) #10 is default
+cv_folds
+```
+
+```{r}
+# Define our KNN model with tuning
+knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% # tune k
+  set_mode("classification") %>% 
+  set_engine("kknn")
+
+# Check the model
+knn_spec_tune
+```
+
+```{r}
+# Define a new workflow
+wf_knn_tune <- workflow() %>% 
+  add_model(knn_spec_tune) %>% 
+  add_recipe(fish_knn_recipe)
+    
+# Fit the workflow on our predefined folds and hyperparameters
+fit_knn_cv <- wf_knn_tune %>% 
+  tune_grid( 
+    cv_folds, # does tuning based on folds
+    grid = data.frame(neighbors = c(1,5,10,15,seq(20,100,10)))) # K=1, K=5, K=15, K=20..., K=100. For each different value for k parameter, model will try it on all folds
+    
+# Check the performance with collect_metrics()
+print(n = 24, fit_knn_cv %>% collect_metrics()) %>% head()
+```
+
+```{r}
+# The final workflow for our KNN model
+final_knn_wf <-
+  wf_knn_tune %>% 
+  finalize_workflow(select_best(fit_knn_cv))
+
+# Check out the final workflow object
+final_knn_wf
+```
+
+```{r}
+# Fitting our final workflow
+final_knn_fit <- final_knn_wf %>% 
+  fit(data = fish_knn_train)
+# Examine the final workflow
+final_knn_fit
+```
+
+```{r}
+# Fit the model to the test data
+fish_knn_pred <- predict(final_knn_fit, new_data = fish_knn_test)
+# Bind to track dataframe
+fish_knn_final <- cbind(fish_knn_test, fish_knn_pred)
+# Build a confusion matrix
+con_matrix_knn <- fish_knn_final %>%
+  select(IsOfConcern, .pred_class) %>%
+  table()
+
+# print table
+con_matrix_knn
+```
+
+```{r}
+# Write over 'final_fit' with this last_fit() approach
+final_knn_fit <- final_knn_wf %>% last_fit(fish_knn_split)
+# Collect metrics on the test data!
+tibble_knn <- final_knn_fit %>% collect_metrics()
+tibble_knn
+
+final_knn_accuracy <- tibble_knn %>%
+  filter(.metric == "accuracy") %>%
+  pull(.estimate)
+final_knn_auc <- tibble_knn %>%
+  filter(.metric == "roc_auc") %>%
+  pull(.estimate)
+
+print(paste0("We see here that our k-nearest neighbors model had a higher accuracy at predicting threat status than the dummy classifier. The accuracy of the model was ", round(final_knn_accuracy, 3), " and the dummy classifier accuracy was ", round(dummy, 3), ". The auc was ", round(final_knn_auc, 3), "."))
+```
+
+### Decision Tree
+
+```{r}
+fish$IsOfConcern <- as.factor(fish$IsOfConcern)
+
+set.seed(1234)
+# Initial split of data, default 70/30
+fish_split <- initial_split(fish, prop = 0.7, strata = IsOfConcern)  # Specify 'prop' for the split ratio
+fish_train <- training(fish_split)  # Training data
+fish_test <- testing(fish_split)    # Test data
+
+# Check for factor and numeric
+#unique_vals_train <- sapply(fish_train, class)
+#unique_vals_test <- sapply(fish_test, class)
+```
+
+```{r}
+#Preprocess the data
+#Should be able to use all training data for this algorithm despite na values
+fish_recipe <- recipe(IsOfConcern~., data = fish_train) %>% 
+  step_impute_mean(all_numeric(), -all_outcomes()) %>%  # Impute missing numeric values with means
+  step_impute_mode(all_factor(), -all_outcomes()) %>%  # Impute missing categorical values with modes
+  step_dummy(all_factor(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_zv(all_predictors()) %>%  # Remove zero variance columns
+  step_normalize(all_numeric(), -all_outcomes()) 
+
+# Check NA values are removed
+prepped <- fish_recipe %>% 
+  prep()
+
+fish_baked_train2 <- bake(prepped, fish_train)
+fish_baked_test2 <- bake(prepped, fish_test)
+
+# Check for NA values in the entire dataframes
+any_na_train <- any(is.na(fish_baked_train2))
+any_na_test <- any(is.na(fish_baked_test2))
+
+# Print the results
+print("NA values in training data:")
+print(any_na_train)
+
+print("NA values in test data:")
+print(any_na_test)
+```
+
+```{r}
+#Tell the model that we are tuning hyperparams
+tree_spec_tune <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+tree_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 5)
+
+tree_grid
+```
+
+```{r}
+wf_tree_tune <- workflow() %>% 
+  add_recipe(fish_recipe) %>% 
+  add_model(tree_spec_tune)
+```
+
+```{r}
+#set up k-fold cv. This can be used for all the algorithms
+fish_cv = fish_train %>% 
+  vfold_cv(v = 10,
+           strata = IsOfConcern)
+fish_cv
+```
+
+```{r}
+doParallel::registerDoParallel(cores = 3) #build trees in parallel
+
+tree_rs <- tune_grid(
+  wf_tree_tune,
+  IsOfConcern~.,
+  resamples = fish_cv,
+  grid = tree_grid,
+  metrics = metric_set(accuracy)
+)
+tree_rs
+```
+
+```{r}
+#Use autoplot() to examine how different parameter configurations relate to accuracy
+autoplot(tree_rs) + theme_light()
+
+# select best hyperparameterw
+show_best(tree_rs)
+select_best(tree_rs)
+
+final_tree <- finalize_model(tree_spec_tune, select_best(tree_rs))
+```
+
+```{r}
+final_tree_fit <- last_fit(final_tree, IsOfConcern~., fish_split) # does training fit then final prediction as well
+final_tree_fit$.predictions
+final_tree_fit$.metrics
+
+tibble_tree <- final_tree_fit %>% collect_metrics()
+tibble_tree
+
+final_tree_accuracy <- tibble_tree %>%
+  filter(.metric == "accuracy") %>%
+  pull(.estimate)
+
+final_tree_auc <- tibble_tree %>%
+  filter(.metric == "roc_auc") %>%
+  pull(.estimate)
+
+print(paste0("We see here that our decision tree model had a slightly higher accuracy at predicting threat status than the dummy classifier or the k-nearest neighbor model. The accuracy of the decision tree was ", round(final_tree_accuracy, 3), ". The AUC is ", round(final_tree_auc, 3), "."))
+```
+
+### Bagging
+
+```{r}
+set.seed(123)
+# Bagging specifications
+bag_spec <- 
+  bag_tree(cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()) %>% 
+  set_engine("rpart", times = 75) %>% # 25 ensemble members 
+  set_mode("classification")
+
+bag_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 5)
+
+bag_grid
+```
+
+```{r}
+wf_bag <- workflow() %>% 
+  add_recipe(fish_recipe) %>% 
+  add_model(bag_spec)
+```
+
+```{r}
+doParallel::registerDoParallel(cores = 4) #build trees in parallel
+
+bag_rs <- tune_grid(
+  wf_bag,
+  IsOfConcern~.,
+  resamples = fish_cv,
+  grid = bag_grid,
+  metrics = metric_set(accuracy)
+)
+
+bag_rs
+```
+
+```{r}
+# Use autoplot() to examine how different parameter configurations relate to accuracy 
+autoplot(bag_rs) + theme_light()
+```
+
+```{r}
+# Select hyperparameters
+show_best(bag_rs)
+select_best(bag_rs)
+```
+
+```{r}
+final_bag <- finalize_model(bag_spec, select_best(bag_rs))
+```
+
+
+```{r}
+final_bag_fit <- last_fit(final_bag, IsOfConcern~., fish_split) # does training fit then final prediction as well
+final_bag_fit$.predictions
+final_bag_fit$.metrics
+
+tibble_bag <- final_bag_fit %>% collect_metrics()
+tibble_bag
+
+final_bag_accuracy <- tibble_bag %>%
+  filter(.metric == "accuracy") %>%
+  pull(.estimate)
+
+print(paste0("We see here that our bagging model had a lower accuracy at predicting threat status than the decision tree and about the same accuracy as the dummy classifier. The accuracy of the bagging was ", round(final_bag_accuracy, 3), ". This is still lower than the knn model."))
+```
+
+### Random Forest
+
+```{r}
+set.seed(123)
+# Bagging specifications
+forest_spec <- 
+  rand_forest(min_n = tune(),
+              mtry = tune(),
+              trees = tune()) %>%  # Specify imputation method since NAs causing problem
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+forest_grid <- grid_regular(min_n(), mtry(c(1,13)), trees(), levels = 5)
+
+forest_grid
+```
+
+```{r}
+wf_forest <- workflow() %>% 
+  add_recipe(fish_recipe) %>% 
+  add_model(forest_spec)
+```
+
+```{r}
+#doParallel::registerDoParallel() #build trees in parallel
+
+forest_rs <- tune_grid(
+  wf_forest,
+  IsOfConcern~.,
+  resamples = fish_cv,
+  grid = forest_grid,
+  metrics = metric_set(accuracy)
+)
+
+forest_rs
+```
+
+```{r}
+# Use autoplot() to examine how different parameter configurations relate to accuracy 
+autoplot(forest_rs) + theme_light()
+```
+
+```{r}
+# Select hyperparameters
+show_best(forest_rs)
+select_best(forest_rs)
+```
+
+```{r}
+final_forest <- finalize_model(forest_spec, select_best(forest_rs))
+```
+
+```{r}
+final_forest_fit <- last_fit(final_forest, IsOfConcern~., fish_split)
+
+final_forest_fit$.predictions
+final_forest_fit$.metrics
+
+tibble_forest <- final_forest_fit %>% collect_metrics()
+tibble_forest
+
+final_forest_accuracy <- tibble_forest %>%
+  filter(.metric == "accuracy") %>%
+  pull(.estimate)
+
+print(paste0("We see here that our random forest had the highest accuracy at predicting threat status than the other models. The accuracy of the forest was ", round(final_forest_accuracy, 3), "."))
+```
+
+
+
+
+
+
+
+```{r}
+model <- c("Dummy", "Lasso", "KNN", "Decision Tree", "Bagging", "Random Forest")
+accuracy <- c(dummy, final_lasso_accuracy, final_knn_accuracy, final_tree_accuracy, final_bag_accuracy, final_forest_accuracy)
+
+accuracy_df <- data.frame(model, accuracy)
+print(accuracy_df)
+
+ggplot(accuracy_df, aes(x = model, y = accuracy)) +
+  geom_col(fill = "#69b3a2") +
+  theme_minimal()
+```
