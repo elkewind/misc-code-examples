@@ -178,9 +178,9 @@ num_is_not_0 <- nrow(fish_test) - num_is_0
 dummy <- num_is_0 / nrow(fish_test)
 ```
 
-### Lasso for Classification
+The dummy classifier accuracy is `{r} dummy`. This will serve as the baseline for other algorithms.
 
-My first model will be a logistic regression model with Lasso regularization. 
+### Lasso for Classification
 
 ```{r}
 set.seed(123)
@@ -190,9 +190,6 @@ fish_cv = fish_train %>%
   vfold_cv(v = 10,
            strata = IsOfConcern)
 fish_cv
-
-# Bootstrap sampling
-#fish_l_boot <- bootstraps(fish_train)
 
 # Set specifications
 tune_l_spec <- logistic_reg(penalty = tune(), mixture = 1) %>%
@@ -208,14 +205,6 @@ lambda_grid <- grid_regular(penalty(), levels = 50)
 doParallel::registerDoParallel()
 set.seed(123)
 
-#
-# lasso_grid <- tune_grid(
-#   wf_l %>% 
-#     add_model(tune_l_spec),
-#   resamples = fish_l_boot,
-#   grid = lambda_grid
-# )
-
 # Tune lasso model
 lasso_grid <-   wf_l %>% 
   tune_grid(
@@ -228,7 +217,7 @@ lasso_grid <-   wf_l %>%
 lasso_grid %>%
   collect_metrics()
 
-# Plot mean rmse and rsq at each penalty
+# Plot the mean accuracy and AUC at each penalty
 lasso_grid %>%
   collect_metrics() %>%
   ggplot(aes(penalty, mean, color = .metric)) +
@@ -241,14 +230,10 @@ lasso_grid %>%
   theme_minimal() +
   theme(legend.position = "none")
 
-# select the model with the highest accuracy
+# Select the model with the highest accuracy
 best_lasso <- lasso_grid %>%
   select_best("accuracy")
 
-# Finalize the workflow with the specifications and best model for accuracy
-# final_lasso <-   wf_l %>% 
-#   finalize_workflow(add_model(tune_l_spec),
-#                     best_lasso)
 # Plot the variable importance
 # final_lasso %>%
 #   fit(fish_train) %>%
@@ -267,49 +252,45 @@ best_lasso <- lasso_grid %>%
 final_lasso_fit <- last_fit(final_lasso, IsOfConcern~., fish_split) %>% 
   collect_metrics()
 
+# Grab the model accuracy on the testing data
 final_lasso_accuracy <- final_lasso_fit %>%
   filter(.metric == "accuracy") %>%
+  pull(.estimate)
+final_lasso_auc <- final_lasso_fit %>%
+  filter(.metric == "roc_auc") %>%
   pull(.estimate)
 
 ```
 
+The accuracy for the lasso model was `r final_lasso_accuracy` which is slightly better than our dummy classifier that had an accuracy of `r dummy`. This model had an AUC of `r final_lasso_auc`. 
+
 ### K-Nearest Neighbor
 
 ```{r}
-# #set up k-fold cv. This can be used for all the algorithms
-# fish_cv = fish_train %>% 
-#   vfold_cv(v = 10,
-#            strata = IsOfConcern)
-# fish_cv
-```
-
-```{r}
-# Define our KNN model with tuning
+# Define the KNN model with tuning
 knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% # tune k
   set_mode("classification") %>% 
   set_engine("kknn")
 
 # Check the model
 knn_spec_tune
-```
 
-```{r}
 # Define a new workflow
 wf_knn_tune <- workflow() %>% 
   add_model(knn_spec_tune) %>% 
   add_recipe(fish_recipe)
     
-# Fit the workflow on our predefined folds and hyperparameters
+# Fit the workflow on the predefined folds and hyperparameters
 fit_knn_cv <- wf_knn_tune %>% 
   tune_grid( 
-    fish_cv, # does tuning based on folds
-    grid = data.frame(neighbors = c(1,5,10,15,seq(20,100,10)))) # K=1, K=5, K=15, K=20..., K=100. For each different value for k parameter, model will try it on all folds
+    fish_cv, 
+    grid = data.frame(neighbors = c(1,5,10,15,seq(20,100,10))))
     
 # Check the performance with collect_metrics()
-print(n = 24, fit_knn_cv %>% collect_metrics()) %>% head()
-```
+print(n = 24, fit_knn_cv %>% 
+        collect_metrics()) %>% 
+  head()
 
-```{r}
 # The final workflow for our KNN model
 final_knn_wf <-
   wf_knn_tune %>% 
@@ -317,34 +298,11 @@ final_knn_wf <-
 
 # Check out the final workflow object
 final_knn_wf
-```
 
-```{r}
-# Fitting our final workflow
-final_knn_fit <- final_knn_wf %>% 
-  fit(data = fish_knn_train)
-# Examine the final workflow
-final_knn_fit
-```
-
-# ```{r}
-# # Fit the model to the test data
-# fish_knn_pred <- predict(final_knn_fit, new_data = fish_test)
-# # Bind to track dataframe
-# fish_knn_final <- cbind(fish_test, fish_knn_pred)
-# # Build a confusion matrix
-# con_matrix_knn <- fish_knn_final %>%
-#   select(IsOfConcern, .pred_class) %>%
-#   table()
-# 
-# # print table
-# con_matrix_knn
-# ```
-
-```{r}
-# Write over 'final_fit' with this last_fit() approach
+# Use last_fit() approach to apply model to test data
 final_knn_fit <- final_knn_wf %>% last_fit(fish_split)
-# Collect metrics on the test data!
+
+# Collect metrics on the test data
 tibble_knn <- final_knn_fit %>% collect_metrics()
 tibble_knn
 
@@ -354,14 +312,14 @@ final_knn_accuracy <- tibble_knn %>%
 final_knn_auc <- tibble_knn %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
-
-print(paste0("We see here that our k-nearest neighbors model had a slightly higher accuracy at predicting threat status than the dummy classifier. The accuracy of the model was ", round(final_knn_accuracy, 3), " and the dummy classifier accuracy was ", round(dummy, 3), ". The auc was ", round(final_knn_auc, 3), "."))
 ```
+
+We see here that our k-nearest neighbors model had a slightly higher accuracy at predicting threat status than the dummy classifier, but not by much. The accuracy of the model was `r final_knn_accuracy`. This model had an AUC of `r final_knn_auc`. 
 
 ### Decision Tree
 
 ```{r}
-#Tell the model that we are tuning hyperparams
+# Tell the model that we are tuning hyperparams
 tree_spec_tune <- decision_tree(
   cost_complexity = tune(),
   tree_depth = tune(),
@@ -369,20 +327,20 @@ tree_spec_tune <- decision_tree(
   set_engine("rpart") %>% 
   set_mode("classification")
 
+# Set up grid
 tree_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 5)
 
+# Check grid
 tree_grid
-```
 
-```{r}
+# Define a workflow with the recipe and specification
 wf_tree_tune <- workflow() %>% 
   add_recipe(fish_recipe) %>% 
   add_model(tree_spec_tune)
-```
 
-```{r}
 doParallel::registerDoParallel(cores = 3) #build trees in parallel
 
+# Tune
 tree_rs <- tune_grid(
   wf_tree_tune,
   IsOfConcern~.,
@@ -390,14 +348,15 @@ tree_rs <- tune_grid(
   grid = tree_grid,
   metrics = metric_set(accuracy)
 )
+
+# Check the results of tuning
 tree_rs
-```
 
-```{r}
-#Use autoplot() to examine how different parameter configurations relate to accuracy
-autoplot(tree_rs) + theme_light()
+# Use autoplot() to examine how different parameter configurations relate to accuracy
+autoplot(tree_rs) + 
+  theme_light()
 
-# select best hyperparameterw
+# Select best hyperparameters
 show_best(tree_rs)
 select_best(tree_rs)
 
@@ -701,10 +660,71 @@ boost_stoc_rs %>%
   slice_head(n = 5) %>% 
   kable(caption = "Performance of the best models and the associated estimates for the stochastic parameter values.")
 
-boost_best_stoch <- eel_rs3 %>%
+boost_best_stoch <- boost_stoc_rs %>%
   tune::select_best("accuracy")
 ```
 
+```{r}
+# Finalize workflow
+# I assemble final workflow with all of the optimized parameters and do a final fit.
+boost_final_spec <- parsnip::boost_tree(mode = "classification",
+                                engine = "xgboost",
+                                trees = 1000,
+                                learn_rate = best_learn$learn_rate,
+                                min_n = boost_best_trees$min_n,
+                                tree_depth = boost_best_trees$tree_depth,
+                                mtry = boost_best_stoch$mtry,                   
+                                loss_reduction = boost_best_trees$loss_reduction,
+                                stop_iter = boost_best_stoch$stop_iter,
+                                sample_size = boost_best_stoch$sample_size
+                                )
+
+# Set up workflow
+wf_boost_final <- workflow() %>% 
+  add_recipe(fish_recipe) %>% 
+  add_model(boost_final_spec)
+
+final_simple_fit <- wf_boost_final %>% # fit to just training data (need for later)
+  fit(data = fish_train)
+
+final_boost_fit <- last_fit(boost_final_spec, IsOfConcern~., fish_split) # does training fit then final prediction as well
+
+
+# Show predictions
+final_boost_pred <- as.data.frame(final_boost_fit$.predictions)
+head(final_boost_pred) %>% 
+  kable(caption = "Predictions of threat on test data.")
+
+final_boost_met <- final_boost_fit$.metrics # Store metrics
+head(final_boost_met) %>% 
+  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
+
+# Bind predictions and original data
+boost_test_rs <- cbind(fish_test, final_boost_fit$.predictions)
+boost_test_rs <- boost_test_rs[, -16] # Remove duplicate column
+
+# Compute a confusion matrix
+cm<- boost_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# View confusion matrix
+autoplot(cm, type = "heatmap") +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        panel.background = element_rect(fill = "#F8F8F8"),
+        plot.background = element_rect(fill = "#F8F8F8")) +
+  labs(title = "Figure 2: Confusion matrix of predictions on test data.")
+
+tibble <- final_boost_fit %>% collect_metrics()
+
+final_boost_accuracy <- tibble %>%
+  filter(.metric == "accuracy") %>%
+  pull(.estimate)
+
+final_boost_auc <- tibble %>%
+  filter(.metric == "roc_auc") %>%
+  pull(.estimate)
+```
 
 
 
