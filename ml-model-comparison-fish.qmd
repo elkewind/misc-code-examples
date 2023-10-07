@@ -72,11 +72,18 @@ fish_dat <- fish_dat_full %>%
   filter(!is.na(IsOfConcern)) # remove columns that don't have outcome variable
 
 # Explore some characteristics of the dataset
-ncol(fish_dat)
-nrow(fish_dat)
+cols <- ncol(fish_dat)
+rows <- nrow(fish_dat)
+df_chars <- data.frame(
+  Metric = c("Number of Columns", "Number of Rows"),
+  Count = c(ncol(fish_dat), nrow(fish_dat)))
+kable(df_chars,
+      col.names = c("", "Count"))
+
 fish_dat %>% 
   group_by(IsOfConcern) %>%
-  count()
+  count() %>% 
+  kable(col.names = c("Species treat is of concern", "Count"))
 ```
 
 ### Data prep
@@ -95,7 +102,7 @@ threshold <- 0.20
 columns_meeting_threshold <- names(na_proportion[na_proportion <= threshold])
 
 # Print the column names that meet the threshold
-print(columns_meeting_threshold)
+print(columns_meeting_threshold) %>% kable(col.names = "Columns that are below NA threshold")
 
 # Select for just those columns that meet my criteria
 fish_short <- fish_dat %>% 
@@ -106,7 +113,7 @@ There is still more to be done. I want to make sure numeric columns are numeric,
 
 ```{r}
 # Find character columns that need to be converted to factor
-sapply(fish_short, class)
+sapply(fish_short, class) %>% kable(col.names = c("Column", "Class"))
 
 # List of character columns to convert to factors
 character_columns_to_convert <- c("GenusSpecies", "BodyShapeI", "DemersPelag", "AirBreathing", "PriceCateg", "UsedforAquaculture", "Dangerous", "Electrogenic", "MainCommonName")
@@ -114,8 +121,6 @@ character_columns_to_convert <- c("GenusSpecies", "BodyShapeI", "DemersPelag", "
 # Convert the specified character columns to factors
 fish <- fish_short %>%
   mutate(across(all_of(character_columns_to_convert), as.factor))
-# Check the new df
-sapply(fish, class)
 
 # If feature is a factor DON'T order, remove identifying columns
 fish <- fish %>% mutate_if(is.ordered, .funs = factor, ordered = F)  %>% 
@@ -125,14 +130,18 @@ fish <- fish %>% mutate_if(is.ordered, .funs = factor, ordered = F)  %>%
 
 # Make outcome factor
 fish$IsOfConcern <- as.factor(fish$IsOfConcern)
+
 # Remove rows with any remaining missing values (shouldn't be any, but in case)
 fish <- na.omit(fish)
+
+# Check the new df
+sapply(fish, class) %>% kable(col.names = c("Column", "Class"))
 ```
 
 After my data are prepped, I need to split the data into training and testing data sets. I use a 70/30 split. I have unbalanced data, so I stratafy by my outcome variable, IsOfConcern
 
 ```{r}
-set.seed(1234)
+set.seed(123)
 # Initial split of data, default 70/30
 fish_split <- initial_split(fish, prop = 0.7, strata = IsOfConcern)
 fish_train <- training(fish_split)  # Training data
@@ -157,14 +166,14 @@ prepped <- fish_recipe %>%
 fish_baked_train <- bake(prepped, fish_train)
 fish_baked_test <- bake(prepped, fish_test)
 
-# Check for NA values in the entire dataframes
-any(is.na(fish_baked_train))
-any(is.na(fish_baked_test))
+# Use below to check for NA values in the entire dataframes
+#any(is.na(fish_baked_train))
+#any(is.na(fish_baked_test))
 ```
 
 ### Dummy Classifier
 
-Because my data are unbalanced with many more non-threatened species, if a model always chose non-threatened it would have a high accuracy. Of course, that is not very helpful when trying to predict with species that *might be* threatened. Here I derive a dummy accuracy by calculating the accuracy of a model that always predicts non-threatened. This will serve as a baseline for if a model is performing well (better than the dummy) or not.
+Because my data are unbalanced with many more non-threatened species, if a model always chose non-threatened it would have a high accuracy. Of course, that is not very helpful when trying to predict with species that *might be* threatened. Here I derive a dummy accuracy by calculating the accuracy of a model that always predicts non-threatened. This will serve as a baseline for if a model is performing well (better than the dummy) or not. However, because this dataset is so imbalanced, I will be using area under the curve (AUC) for model selection.
 
 ```{r}
 # Calculate dummy classifier for baseline comparison
@@ -185,11 +194,10 @@ The dummy classifier accuracy is `{r} dummy`. This will serve as the baseline fo
 ```{r}
 set.seed(123)
 
-#set up k-fold cv. This can be used for all the algorithms
+# Set up k-fold cross validation with 10 folds. This can be used for all the algorithms
 fish_cv = fish_train %>% 
   vfold_cv(v = 10,
            strata = IsOfConcern)
-fish_cv
 
 # Set specifications
 tune_l_spec <- logistic_reg(penalty = tune(), mixture = 1) %>%
@@ -213,9 +221,10 @@ lasso_grid <-   wf_l %>%
     grid = lambda_grid
 )
 
-# Collect metrics
 lasso_grid %>%
-  collect_metrics()
+  tune::show_best(metric = "roc_auc") %>%
+  slice_head(n = 5) %>% 
+  kable(caption = "Performance of the best models and the associated estimates for the penalty parameter values.")
 
 # Plot the mean accuracy and AUC at each penalty
 lasso_grid %>%
@@ -230,33 +239,26 @@ lasso_grid %>%
   theme_minimal() +
   theme(legend.position = "none")
 
-# Select the model with the highest accuracy
+# Select the model with the highest auc
 best_lasso <- lasso_grid %>%
-  select_best("accuracy")
+  select_best("roc_auc")
 
-# Plot the variable importance
-# final_lasso %>%
-#   fit(fish_train) %>%
-#   pull_workflow_fit() %>%
-#   vi(lambda = best_lasso$penalty) %>%
-#   mutate(
-#     Importance = abs(Importance),
-#     Variable = fct_reorder(Variable, Importance)
-#   ) %>%
-#   ggplot(aes(x = Importance, y = Variable, fill = Sign)) +
-#   geom_col() +
-#   scale_x_continuous(expand = c(0, 0)) +
-#   labs(y = NULL)
+final_l_wf <- wf_l %>% 
+  finalize_workflow(best_lasso)
 
 # Perform a last fit to see how the model performs on the test data
-final_lasso_fit <- last_fit(final_lasso, IsOfConcern~., fish_split) %>% 
-  collect_metrics()
+final_lasso_fit <- last_fit(final_l_wf, fish_split)
+
+# Collect metrics on the test data
+tibble_lasso <- final_lasso_fit %>% collect_metrics()
+tibble_lasso %>% 
+  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
 
 # Grab the model accuracy on the testing data
-final_lasso_accuracy <- final_lasso_fit %>%
+final_lasso_accuracy <- tibble_lasso %>%
   filter(.metric == "accuracy") %>%
   pull(.estimate)
-final_lasso_auc <- final_lasso_fit %>%
+final_lasso_auc <- tibble_lasso %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
 
@@ -272,9 +274,6 @@ knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% # tune k
   set_mode("classification") %>% 
   set_engine("kknn")
 
-# Check the model
-knn_spec_tune
-
 # Define a new workflow
 wf_knn_tune <- workflow() %>% 
   add_model(knn_spec_tune) %>% 
@@ -284,28 +283,35 @@ wf_knn_tune <- workflow() %>%
 fit_knn_cv <- wf_knn_tune %>% 
   tune_grid( 
     fish_cv, 
-    grid = data.frame(neighbors = c(1,5,10,15,seq(20,100,10))))
+    grid = data.frame(neighbors = c(1,5,10,15,seq(20,200,10))))
+
+# Use autoplot() to examine how different parameter configurations relate to accuracy
+autoplot(fit_knn_cv) + 
+  theme_light()
     
-# Check the performance with collect_metrics()
-print(n = 24, fit_knn_cv %>% 
-        collect_metrics()) %>% 
-  head()
+fit_knn_cv %>%
+  tune::show_best(metric = "roc_auc") %>%
+  slice_head(n = 5) %>% 
+  kable(caption = "Performance of the best models and the associated estimates for the number of neighbors parameter values.")
+
+# Select the model with the highest auc
+best_knn <- fit_knn_cv %>%
+  select_best("roc_auc")
 
 # The final workflow for our KNN model
 final_knn_wf <-
   wf_knn_tune %>% 
-  finalize_workflow(select_best(fit_knn_cv))
-
-# Check out the final workflow object
-final_knn_wf
+  finalize_workflow(best_knn)
 
 # Use last_fit() approach to apply model to test data
-final_knn_fit <- final_knn_wf %>% last_fit(fish_split)
+final_knn_fit <- last_fit(final_knn_wf, fish_split)
 
 # Collect metrics on the test data
 tibble_knn <- final_knn_fit %>% collect_metrics()
-tibble_knn
+tibble_knn %>% 
+  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
 
+# Store accuracy and AUC
 final_knn_accuracy <- tibble_knn %>%
   filter(.metric == "accuracy") %>%
   pull(.estimate)
@@ -314,7 +320,7 @@ final_knn_auc <- tibble_knn %>%
   pull(.estimate)
 ```
 
-We see here that our k-nearest neighbors model had a slightly higher accuracy at predicting threat status than the dummy classifier, but not by much. The accuracy of the model was `r final_knn_accuracy`. This model had an AUC of `r final_knn_auc`. 
+We see here that our k-nearest neighbors model had a slightly higher accuracy at predicting threat status than the dummy classifier, but not by much. The accuracy of the model was `r final_knn_accuracy`. This model had an AUC of `r final_knn_auc` which is better than the lasso model. 
 
 ### Decision Tree
 
@@ -331,7 +337,7 @@ tree_spec_tune <- decision_tree(
 tree_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 5)
 
 # Check grid
-tree_grid
+#tree_grid 
 
 # Define a workflow with the recipe and specification
 wf_tree_tune <- workflow() %>% 
@@ -346,31 +352,29 @@ tree_rs <- tune_grid(
   IsOfConcern~.,
   resamples = fish_cv,
   grid = tree_grid,
-  metrics = metric_set(accuracy)
+  metrics = metric_set(roc_auc)
 )
-
-# Check the results of tuning
-tree_rs
 
 # Use autoplot() to examine how different parameter configurations relate to accuracy
 autoplot(tree_rs) + 
   theme_light()
 
-# Select best hyperparameters
-show_best(tree_rs)
-select_best(tree_rs)
+tree_rs %>%
+  tune::show_best(metric = "roc_auc") %>%
+  slice_head(n = 5) %>% 
+  kable(caption = "Performance of the best models and the associated estimates for the tuned tree parameter values.")
 
+# Finalize the model specs with the best hyperparameter result
 final_tree <- finalize_model(tree_spec_tune, select_best(tree_rs))
-```
 
-```{r}
+# Final fit to test data 
 final_tree_fit <- last_fit(final_tree, IsOfConcern~., fish_split) # does training fit then final prediction as well
-final_tree_fit$.predictions
-final_tree_fit$.metrics
 
+# Collect metrics from fit
 tibble_tree <- final_tree_fit %>% collect_metrics()
-tibble_tree
+tibble_tree %>% kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
 
+# Store accuracy and auc metrics
 final_tree_accuracy <- tibble_tree %>%
   filter(.metric == "accuracy") %>%
   pull(.estimate)
@@ -378,15 +382,15 @@ final_tree_accuracy <- tibble_tree %>%
 final_tree_auc <- tibble_tree %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
-
-print(paste0("We see here that our decision tree model had a similar accuracy at predicting threat status than the dummy classifier. The accuracy of the decision tree was ", round(final_tree_accuracy, 3), ". The AUC is ", round(final_tree_auc, 3), "."))
 ```
+
+We see here that our decision tree model had a higher accuracy at predicting threat status than the dummy classifier or other models. The accuracy of the decision tree was `r round(final_tree_accuracy, 3)`. The AUC is `r round(final_tree_auc, 3)` which is higher than the lasso model and similar to the knn model.
 
 ### Bagging
 
 ```{r}
 set.seed(123)
-# Bagging specifications
+# Set bagging tuning specifications
 bag_spec <- 
   bag_tree(cost_complexity = tune(),
   tree_depth = tune(),
@@ -394,134 +398,128 @@ bag_spec <-
   set_engine("rpart", times = 75) %>% # 25 ensemble members 
   set_mode("classification")
 
+# Set up tuning grid
 bag_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 5)
 
-bag_grid
-```
+# Check the grid space
+#bag_grid
 
-```{r}
+# Set up bagging workflow
 wf_bag <- workflow() %>% 
   add_recipe(fish_recipe) %>% 
   add_model(bag_spec)
-```
 
-```{r}
 doParallel::registerDoParallel() #build trees in parallel
 
+# Run tuning
 bag_rs <- tune_grid(
   wf_bag,
   IsOfConcern~.,
   resamples = fish_cv,
   grid = bag_grid,
-  metrics = metric_set(accuracy)
+  metrics = metric_set(roc_auc)
 )
 
-bag_rs
-```
-
-```{r}
 # Use autoplot() to examine how different parameter configurations relate to accuracy 
 autoplot(bag_rs) + theme_light()
-```
 
-```{r}
-# Select hyperparameters
-show_best(bag_rs)
-select_best(bag_rs)
-```
+bag_rs %>%
+  tune::show_best() %>%
+  slice_head(n = 5) %>% 
+  kable(caption = "Performance of the best models and the associated estimates for the tuned tree parameter values.")
 
-```{r}
+# Finalize the model specs witht he best performing model
 final_bag <- finalize_model(bag_spec, select_best(bag_rs))
-```
 
+# Perform a last fit of the model on the testing data
+final_bag_fit <- last_fit(final_bag, IsOfConcern~., fish_split)
 
-```{r}
-final_bag_fit <- last_fit(final_bag, IsOfConcern~., fish_split) # does training fit then final prediction as well
-final_bag_fit$.predictions
-final_bag_fit$.metrics
-
+# Collect metrics from fit
 tibble_bag <- final_bag_fit %>% collect_metrics()
-tibble_bag
+tibble_bag %>% 
+  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
 
+# Store model accuracy and auc on testing data
 final_bag_accuracy <- tibble_bag %>%
   filter(.metric == "accuracy") %>%
   pull(.estimate)
-
-print(paste0("We see here that our bagging model had a lower accuracy at predicting threat status than the decision tree and about the same accuracy as the dummy classifier. The accuracy of the bagging was ", round(final_bag_accuracy, 3), ". This is still lower than the knn model."))
+final_bag_auc <- tibble_bag %>%
+  filter(.metric == "roc_auc") %>%
+  pull(.estimate)
 ```
+
+We see here that our bagging model had a *lower* accuracy at predicting threat status than the decision tree and a similar accuracy as the dummy classifier. The accuracy of the bagging was `r round(final_bag_accuracy, 3)`. The AUC is `r round(final_bag_auc, 3)`.
 
 ### Random Forest
 
 ```{r}
 set.seed(123)
-# Bagging specifications
+
+# Set forest specifications
 forest_spec <- 
   rand_forest(min_n = tune(),
               mtry = tune(),
-              trees = tune()) %>%  # Specify imputation method since NAs causing problem
+              trees = tune()) %>%
   set_engine("ranger") %>%
   set_mode("classification")
 
-forest_grid <- grid_regular(min_n(), mtry(c(1,13)), trees(), levels = 5)
+# Set grid for tuning
+forest_grid <- grid_regular(min_n(), mtry(), trees(), levels = 5)
 
-forest_grid
-```
+# Check the grid space
+#forest_grid
 
-```{r}
+# Set the workflow with the recipe and forest specs
 wf_forest <- workflow() %>% 
   add_recipe(fish_recipe) %>% 
   add_model(forest_spec)
-```
 
-```{r}
-doParallel::registerDoParallel() #build trees in parallel
+doParallel::registerDoParallel()
 
+# Perform tuning
 forest_rs <- tune_grid(
   wf_forest,
   IsOfConcern~.,
   resamples = fish_cv,
   grid = forest_grid,
-  metrics = metric_set(accuracy)
+  metrics = metric_set(roc_auc)
 )
 
-forest_rs
-```
-
-```{r}
 # Use autoplot() to examine how different parameter configurations relate to accuracy 
 autoplot(forest_rs) + theme_light()
-```
 
-```{r}
-# Select hyperparameters
-show_best(forest_rs)
-select_best(forest_rs)
-```
+forest_rs %>%
+  tune::show_best() %>%
+  slice_head(n = 5) %>% 
+  kable(caption = "Performance of the best models and the associated estimates for the tree and forest parameter values.")
 
-```{r}
+# Finalize model with specs and best hyperparameters
 final_forest <- finalize_model(forest_spec, select_best(forest_rs))
-```
 
-```{r}
+# Perform last fit
 final_forest_fit <- last_fit(final_forest, IsOfConcern~., fish_split)
 
-final_forest_fit$.predictions
-final_forest_fit$.metrics
-
+# Collect performance metrics
 tibble_forest <- final_forest_fit %>% collect_metrics()
-tibble_forest
+tibble_forest %>% 
+  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
 
+# Store accuracy and auc metrics
 final_forest_accuracy <- tibble_forest %>%
   filter(.metric == "accuracy") %>%
   pull(.estimate)
-
-print(paste0("We see here that our random forest had the highest accuracy at predicting threat status than the other models. The accuracy of the forest was ", round(final_forest_accuracy, 3), "."))
+final_forest_auc <- tibble_forest %>%
+  filter(.metric == "roc_auc") %>%
+  pull(.estimate)
 ```
+
+The accuracy of the forest was `r round(final_forest_accuracy, 3)`. This is slightly higher than the dummy classifier, but still lower that the decision tree. This model had an auc of `r round(final_forest_auc, 3)`.
 
 ### Boosting
 
 ```{r}
 # Tune learning rate first
+# Set up specs for learning rate tuning
 lr_spec <- parsnip::boost_tree(mode = "classification",
                                 engine = "xgboost",
                                 trees = 3000,
@@ -545,20 +543,20 @@ lr_rs <- tune_grid(
   resamples = fish_cv,
   grid = lr_grid
 )
-```
 
-```{r}
+# Use autoplot() to examine how different parameter configurations relate to accuracy 
+autoplot(lr_rs) + theme_light()
+
 # Identify best values from the tuning process
 lr_rs %>%
-  tune::show_best(metric = "accuracy") %>%
+  tune::show_best(metric = "roc_auc") %>%
   slice_head(n = 5) %>% 
   kable(caption = "Performance of the best models and the associated estimates for the learning rate parameter values.")
 
+# Select best lr hyperparametes
 best_learn <- lr_rs %>%
-  tune::select_best("accuracy")
-```
+  tune::select_best("roc_auc")
 
-```{r}
 # Tune tree parameters next
 # Create a new specification where setting the learning rate and tune the tree parameters
 boost_tree_spec <- parsnip::boost_tree(mode = "classification",
@@ -569,9 +567,7 @@ boost_tree_spec <- parsnip::boost_tree(mode = "classification",
                                 tree_depth = tune(),
                                 loss_reduction = tune()
                                 )
-```
 
-```{r}
 # Define parameters to be tuned
 boost_params <- dials::parameters(
   min_n(),
@@ -597,20 +593,20 @@ boost_tree_rs <- tune_grid(
   resamples = fish_cv,
   grid = boost_tree_grid
 )
-```
 
-```{r}
+# Use autoplot() to examine how different parameter configurations relate to accuracy 
+autoplot(boost_tree_rs) + theme_light()
+
 # Identify best values from the tuning process
 boost_tree_rs %>%
-  tune::show_best(metric = "accuracy") %>% 
+  tune::show_best(metric = "roc_auc") %>% 
   slice_head(n = 5) %>% 
   kable(caption = "Performance of the best models and the associated estimates for the tree parameter values.")
 
+# Select best tree hyperparameters
 boost_best_trees <- boost_tree_rs %>%
-  tune::select_best("accuracy")
-```
+  tune::select_best("roc_auc")
 
-```{r}
 # Tune Stochastic Parameters
 # Create another new specification where setting the learning rate and tree parameters and tune the stochastic parameters.
 boost_stoc_spec <- parsnip::boost_tree(mode = "classification",
@@ -651,22 +647,22 @@ boost_stoc_rs <- tune_grid(
   resamples = fish_cv,
   grid = boost_stoc_grid
 )
-```
 
-```{r}
+# Use autoplot() to examine how different parameter configurations relate to accuracy 
+autoplot(boost_stoc_rs) + theme_light()
+
 # Identify best values from the tuning process
 boost_stoc_rs %>%
-  tune::show_best(metric = "accuracy") %>%
+  tune::show_best(metric = "roc_auc") %>%
   slice_head(n = 5) %>% 
   kable(caption = "Performance of the best models and the associated estimates for the stochastic parameter values.")
 
+# Select best hyperparameters from tuning
 boost_best_stoch <- boost_stoc_rs %>%
-  tune::select_best("accuracy")
-```
+  tune::select_best("roc_auc")
 
-```{r}
 # Finalize workflow
-# I assemble final workflow with all of the optimized parameters and do a final fit.
+# Assemble final workflow with all of the optimized parameters and do a final fit.
 boost_final_spec <- parsnip::boost_tree(mode = "classification",
                                 engine = "xgboost",
                                 trees = 1000,
@@ -684,27 +680,19 @@ wf_boost_final <- workflow() %>%
   add_recipe(fish_recipe) %>% 
   add_model(boost_final_spec)
 
-final_simple_fit <- wf_boost_final %>% # fit to just training data (need for later)
+# Fit to just training data (need for later)
+final_simple_fit <- wf_boost_final %>%
   fit(data = fish_train)
 
-final_boost_fit <- last_fit(boost_final_spec, IsOfConcern~., fish_split) # does training fit then final prediction as well
-
-
-# Show predictions
-final_boost_pred <- as.data.frame(final_boost_fit$.predictions)
-head(final_boost_pred) %>% 
-  kable(caption = "Predictions of threat on test data.")
-
-final_boost_met <- final_boost_fit$.metrics # Store metrics
-head(final_boost_met) %>% 
-  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
+# Final fit
+final_boost_fit <- last_fit(boost_final_spec, IsOfConcern~., fish_split)
 
 # Bind predictions and original data
 boost_test_rs <- cbind(fish_test, final_boost_fit$.predictions)
 boost_test_rs <- boost_test_rs[, -16] # Remove duplicate column
 
 # Compute a confusion matrix
-cm<- boost_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+cm <- boost_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
 
 # View confusion matrix
 autoplot(cm, type = "heatmap") +
@@ -715,31 +703,30 @@ autoplot(cm, type = "heatmap") +
         plot.background = element_rect(fill = "#F8F8F8")) +
   labs(title = "Figure 2: Confusion matrix of predictions on test data.")
 
-tibble <- final_boost_fit %>% collect_metrics()
 
-final_boost_accuracy <- tibble %>%
+# Store accuracy and auc metrics
+tibble_boost <- final_boost_fit %>% collect_metrics()
+tibble_boost %>% 
+  kable(caption = "Accuracy and area under ther receiver operator curve of the final fit.")
+
+final_boost_accuracy <- tibble_boost %>%
   filter(.metric == "accuracy") %>%
   pull(.estimate)
 
-final_boost_auc <- tibble %>%
+final_boost_auc <- tibble_boost %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
 ```
 
-
-
-
-
-
-
-
-
+The accuracy of the boosting was `r round(final_boost_accuracy, 3)`. This is higher than the dummy classifier, but slightly lower that the decision tree. This model had an auc of `r round(final_forest_auc, 3)`, which is the best of all models.
 
 ### Results
 
+I want to compare accuracy and area under the curve of all models created. 
+
 ```{r}
-models <- c("Dummy", "Lasso", "KNN", "Decision Tree", "Bagging", "Random Forest")
-accuracy <- c(dummy, final_lasso_accuracy, final_knn_accuracy, final_tree_accuracy, final_bag_accuracy, final_forest_accuracy)
+models <- c("Dummy", "Lasso", "KNN", "Decision Tree", "Bagging", "Random Forest", "Boosting")
+accuracy <- c(dummy, final_lasso_accuracy, final_knn_accuracy, final_tree_accuracy, final_bag_accuracy, final_forest_accuracy, final_boost_accuracy)
 
 accuracy_df <- data.frame(models, accuracy)
 print(accuracy_df)
@@ -747,4 +734,37 @@ print(accuracy_df)
 ggplot(accuracy_df, aes(x = models, y = accuracy)) +
   geom_col(fill = "#69b3a2") +
   theme_minimal()
+
+auc <- c(final_lasso_auc, final_knn_auc, final_tree_auc, final_bag_auc, final_forest_auc, final_boost_auc)
+
+auc_df <- data.frame(models[-1], auc)
+print(auc_df)
+
+ggplot(auc_df, aes(x = models[-1], y = auc)) +
+  geom_col(fill = "#69b3a2") +
+  theme_minimal()
 ```
+
+Because the dataset is very imbalanced with the proportion of threatened species being small, the accuracies between models don't vary much. It is difficult to get much more accurate than always choosing not threatened (the dummy classifier) because that already has an accuracy of `r dummy`. All models performed better than the dummy classifier though, so that is encouraging. Looking at AUC we see that boosting decision trees was the most successful of the models when applied to the testing data. 
+
+### Varibale Importance
+
+I want to look at the variable importance of the most successful model, the boosting.
+
+```{r}
+# Variable importance
+var_imp_boost <- wf_boost_final %>% 
+  fit(fish_train) %>% 
+  pull_workflow_fit() %>%
+  vi() %>%
+  mutate(
+    Importance = abs(Importance),
+    Variable = fct_reorder(Variable, Importance))
+var_imp_boost %>% 
+  ggplot(aes(x = Importance, y = Variable)) +
+  geom_col() +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = NULL)
+```
+
+It looks like length, having no special electrogenic ability, other body shape, and depth range (deep) are driving the model the most. 
