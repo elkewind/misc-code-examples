@@ -221,23 +221,35 @@ lasso_grid <-   wf_l %>%
     grid = lambda_grid
 )
 
-lasso_grid %>%
-  tune::show_best(metric = "roc_auc") %>%
-  slice_head(n = 5) %>% 
-  kable(caption = "Performance of the best models and the associated estimates for the penalty parameter values.")
-
 # Plot the mean accuracy and AUC at each penalty
 lasso_grid %>%
   collect_metrics() %>%
   ggplot(aes(penalty, mean, color = .metric)) +
   geom_errorbar(aes(ymin = mean - std_err,
                     ymax = mean + std_err),
-  alpha = 0.5) +
+                alpha = 0.5) +
   geom_line(size = 1.5) +
-  facet_wrap(~.metric, scales = "free", nrow = 2) +
-  scale_x_log10() +
+  facet_wrap(~.metric, 
+             scales = "free", 
+             strip.position = "left",
+             nrow = 2, labeller = as_labeller(c(`accuracy` = "Accuracy", 
+                                                `roc_auc` = "Area under ROC curve"))) +
+  scale_x_log10(name = "Penalty") +
+  scale_y_continuous(name = "") +
+  scale_color_manual(values = c("#4a6c75", "#57ba72")) +
   theme_minimal() +
-  theme(legend.position = "none")
+  theme(
+    strip.placement = "outside",
+    legend.position = "none",
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  )
+
+# View table
+lasso_grid %>%
+  tune::show_best(metric = "roc_auc") %>%
+  slice_head(n = 5) %>% 
+  kable(caption = "Performance of the best models and the associated estimates for the penalty parameter values.")
 
 # Select the model with the highest auc
 best_lasso <- lasso_grid %>%
@@ -262,6 +274,44 @@ final_lasso_auc <- tibble_lasso %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
 
+# Bind predictions and original data
+lasso_test_rs <- cbind(fish_test, final_lasso_fit$.predictions)[, -16]# Remove duplicate column
+
+# Compute a confusion matrix
+cm_lasso <- lasso_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# Create a custom color palette
+custom_palette <- scale_fill_gradient(
+  high = "#4a6c75",   
+  low = "#d3e6eb"  
+)
+
+# Create the confusion matrix heatmap plot
+autoplot(cm_lasso, type = "heatmap") +
+  custom_palette +  # Apply the custom color palette
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  labs(title = "Confusion matrix of lasso predictions on test data.")
+
+# Calculate rates of tru pos, false neg. etc. from the confusion matrix
+TP_las <- cm_lasso$table[2, 2]
+FP_las <- cm_lasso$table[2, 1]
+TN_las <- cm_lasso$table[1, 1]
+FN_las <- cm_lasso$table[1, 2]
+TPR_las <- TP_las / (TP_las + FN_las)  # True Positive Rate
+FPR_las <- FP_las / (FP_las + TN_las)  # False Positive Rate
+TNR_las <- TN_las / (TN_las + FP_las)  # True Negative Rate
+FNR_las <- FN_las / (TP_las + FN_las)  # False Negative Rate
+
+# Create cm df to hold all false pos, etc. metrics
+lasso_cm_vec <- c(TPR_las, FPR_las, TNR_las, FNR_las)
+row_names <- c("True positive rate", "False positive rate", "True negative rate", "False negative rate")
+cm_df <- bind_cols(Metric = row_names, Lasso = lasso_cm_vec)
 ```
 
 The accuracy for the lasso model was `r final_lasso_accuracy` which is slightly better than our dummy classifier that had an accuracy of `r dummy`. This model had an AUC of `r final_lasso_auc`. 
@@ -286,9 +336,23 @@ fit_knn_cv <- wf_knn_tune %>%
     grid = data.frame(neighbors = c(1,5,10,15,seq(20,200,10))))
 
 # Use autoplot() to examine how different parameter configurations relate to accuracy
-autoplot(fit_knn_cv) + 
-  theme_light()
-    
+autoplot(fit_knn_cv) +
+  theme_light() +
+  labs(
+    x = "Number of neighbors (K)"
+  ) +
+  theme(
+    legend.position = "none",
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  facet_wrap(
+    ~.metric,
+    nrow = 2,
+    labeller = labeller(.metric = c("accuracy" = "Accuracy", "roc_auc" = "Area under ROC curve"))
+  )
+
+# View table
 fit_knn_cv %>%
   tune::show_best(metric = "roc_auc") %>%
   slice_head(n = 5) %>% 
@@ -318,9 +382,42 @@ final_knn_accuracy <- tibble_knn %>%
 final_knn_auc <- tibble_knn %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
+
+# Bind predictions and original data
+knn_test_rs <- cbind(fish_test, final_knn_fit$.predictions)[, -16]
+
+# Compute a confusion matrix
+cm_knn <- knn_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# Create the confusion matrix heatmap plot
+autoplot(cm_knn, type = "heatmap") +
+  custom_palette +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  labs(title = "Confusion matrix of knn predictions on test data.")
+
+
+# Calculate rates from the confusion matrix
+TP_knn <- cm_knn$table[2, 2]
+FP_knn <- cm_knn$table[2, 1]
+TN_knn <- cm_knn$table[1, 1]
+FN_knn <- cm_knn$table[1, 2]
+TPR_knn <- TP_knn / (TP_knn + FN_knn)  # True Positive Rate
+FPR_knn <- FP_knn / (FP_knn + TN_knn)  # False Positive Rate
+TNR_knn <- TN_knn / (TN_knn + FP_knn)  # True Negative Rate
+FNR_knn <- FN_knn / (TP_knn + FN_knn)  # False Negative Rate
+
+# Add rates to cm df
+knn_cm_vec <- c(TPR_knn, FPR_knn, TNR_knn, FNR_knn)
+cm_df$KNN <- knn_cm_vec
 ```
 
-We see here that our k-nearest neighbors model had a slightly higher accuracy at predicting threat status than the dummy classifier, but not by much. The accuracy of the model was `r final_knn_accuracy`. This model had an AUC of `r final_knn_auc` which is better than the lasso model. 
+We see here that our k-nearest neighbors model had nearly the same accuracy at predicting threat status than the dummy classifier. The accuracy of the model was `r final_knn_accuracy`. This model had an AUC of `r final_knn_auc` which is better than the lasso model. 
 
 ### Decision Tree
 
@@ -355,10 +452,19 @@ tree_rs <- tune_grid(
   metrics = metric_set(roc_auc)
 )
 
-# Use autoplot() to examine how different parameter configurations relate to accuracy
+# Use autoplot() to examine how different parameter configurations relate to auc
 autoplot(tree_rs) + 
-  theme_light()
+  theme_light() +
+  scale_color_manual(values = c("#4a6c75", "#57ba72", "#d596e0", "#e06d53", "#d6cf81")) + 
+  labs(x = "Cost-complexity parameter",
+       y = "Area under the ROC curve") +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  )
 
+# View table
 tree_rs %>%
   tune::show_best(metric = "roc_auc") %>%
   slice_head(n = 5) %>% 
@@ -382,6 +488,39 @@ final_tree_accuracy <- tibble_tree %>%
 final_tree_auc <- tibble_tree %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
+
+# Bind predictions and original data
+tree_test_rs <- cbind(fish_test, final_tree_fit$.predictions)[, -16]
+
+# Compute a confusion matrix
+cm_tree <- tree_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# Create the confusion matrix heatmap plot
+autoplot(cm_tree, type = "heatmap") +
+  custom_palette +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  labs(title = "Confusion matrix of decision tree predictions on test data.")
+
+
+# Calculate rates from the confusion matrix
+TP_tree <- cm_tree$table[2, 2]
+FP_tree <- cm_tree$table[2, 1]
+TN_tree <- cm_tree$table[1, 1]
+FN_tree <- cm_tree$table[1, 2]
+TPR_tree <- TP_tree / (TP_tree + FN_tree)  # True Positive Rate
+FPR_tree <- FP_tree / (FP_tree + TN_tree)  # False Positive Rate
+TNR_tree <- TN_tree / (TN_tree + FP_tree)  # True Negative Rate
+FNR_tree <- FN_tree / (TP_tree + FN_tree)  # False Negative Rate
+
+# Add rates to cm df
+tree_cm_vec <- c(TPR_tree, FPR_tree, TNR_tree, FNR_tree)
+cm_df$DecisionTree <- tree_cm_vec
 ```
 
 We see here that our decision tree model had a higher accuracy at predicting threat status than the dummy classifier or other models. The accuracy of the decision tree was `r round(final_tree_accuracy, 3)`. The AUC is `r round(final_tree_auc, 3)` which is higher than the lasso model and similar to the knn model.
@@ -420,9 +559,19 @@ bag_rs <- tune_grid(
   metrics = metric_set(roc_auc)
 )
 
-# Use autoplot() to examine how different parameter configurations relate to accuracy 
-autoplot(bag_rs) + theme_light()
+# Use autoplot() to examine how different parameter configurations relate to auc
+autoplot(bag_rs) + 
+  theme_light() +
+  scale_color_manual(values = c("#4a6c75", "#57ba72", "#d596e0", "#e06d53", "#d6cf81")) + 
+  labs(x = "Cost-complexity parameter",
+       y = "Area under the ROC curve") +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  )
 
+# View table
 bag_rs %>%
   tune::show_best() %>%
   slice_head(n = 5) %>% 
@@ -446,6 +595,39 @@ final_bag_accuracy <- tibble_bag %>%
 final_bag_auc <- tibble_bag %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
+
+# Bind predictions and original data
+bag_test_rs <- cbind(fish_test, final_bag_fit$.predictions)[, -16]
+
+# Compute a confusion matrix
+cm_bag <- bag_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# Create the confusion matrix heatmap plot
+autoplot(cm_bag, type = "heatmap") +
+  custom_palette +  # Apply the custom color palette
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  labs(title = "Confusion matrix of bagging predictions on test data.")
+
+
+# Calculate rates from the confusion matrix
+TP_bag <- cm_bag$table[2, 2]
+FP_bag <- cm_bag$table[2, 1]
+TN_bag <- cm_bag$table[1, 1]
+FN_bag <- cm_bag$table[1, 2]
+TPR_bag <- TP_bag / (TP_bag + FN_bag)  # True Positive Rate
+FPR_bag <- FP_bag / (FP_bag + TN_bag)  # False Positive Rate
+TNR_bag <- TN_bag / (TN_bag + FP_bag)  # True Negative Rate
+FNR_bag <- FN_bag / (TP_bag + FN_bag)  # False Negative Rate
+
+# Add rates to cm df
+bag_cm_vec <- c(TPR_bag, FPR_bag, TNR_bag, FNR_bag)
+cm_df$Bagging <- bag_cm_vec
 ```
 
 We see here that our bagging model had a *lower* accuracy at predicting threat status than the decision tree and a similar accuracy as the dummy classifier. The accuracy of the bagging was `r round(final_bag_accuracy, 3)`. The AUC is `r round(final_bag_auc, 3)`.
@@ -485,9 +667,19 @@ forest_rs <- tune_grid(
   metrics = metric_set(roc_auc)
 )
 
-# Use autoplot() to examine how different parameter configurations relate to accuracy 
-autoplot(forest_rs) + theme_light()
+# Use autoplot() to examine how different parameter configurations relate to auc
+autoplot(forest_rs) + 
+  theme_light() +
+  scale_color_manual(values = c("#4a6c75", "#57ba72", "#d596e0", "#e06d53", "#d6cf81")) + 
+  labs(x = "# Randomly selected predictors",
+       y = "Area under the ROC curve") +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  )
 
+# View table
 forest_rs %>%
   tune::show_best() %>%
   slice_head(n = 5) %>% 
@@ -511,6 +703,39 @@ final_forest_accuracy <- tibble_forest %>%
 final_forest_auc <- tibble_forest %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
+
+# Bind predictions and original data
+forest_test_rs <- cbind(fish_test, final_forest_fit$.predictions)[, -16]
+
+# Compute a confusion matrix
+cm_forest <- forest_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# Create the confusion matrix heatmap plot
+autoplot(cm_forest, type = "heatmap") +
+  custom_palette +  # Apply the custom color palette
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  labs(title = "Confusion matrix of random forest predictions on test data.")
+
+
+# Calculate rates from the confusion matrix
+TP_forest <- cm_forest$table[2, 2]
+FP_forest <- cm_forest$table[2, 1]
+TN_forest <- cm_forest$table[1, 1]
+FN_forest <- cm_forest$table[1, 2]
+TPR_forest <- TP_forest / (TP_forest + FN_forest)  # True Positive Rate
+FPR_forest <- FP_forest / (FP_forest + TN_forest)  # False Positive Rate
+TNR_forest <- TN_forest / (TN_forest + FP_forest)  # True Negative Rate
+FNR_forest <- FN_forest / (TP_forest + FN_forest)  # False Negative Rate
+
+# Add rates to cm df
+forest_cm_vec <- c(TPR_forest, FPR_forest, TNR_forest, FNR_forest)
+cm_df$RandomForest <- forest_cm_vec
 ```
 
 The accuracy of the forest was `r round(final_forest_accuracy, 3)`. This is slightly higher than the dummy classifier, but still lower that the decision tree. This model had an auc of `r round(final_forest_auc, 3)`.
@@ -545,7 +770,21 @@ lr_rs <- tune_grid(
 )
 
 # Use autoplot() to examine how different parameter configurations relate to accuracy 
-autoplot(lr_rs) + theme_light()
+autoplot(lr_rs) +   
+  theme_light() +
+  labs(
+    x = "Learning rate"
+  ) +
+  theme(
+    legend.position = "none",
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  facet_wrap(
+    ~.metric,
+    nrow = 2,
+    labeller = labeller(.metric = c("accuracy" = "Accuracy", "roc_auc" = "Area under ROC curve"))
+  )
 
 # Identify best values from the tuning process
 lr_rs %>%
@@ -593,9 +832,6 @@ boost_tree_rs <- tune_grid(
   resamples = fish_cv,
   grid = boost_tree_grid
 )
-
-# Use autoplot() to examine how different parameter configurations relate to accuracy 
-autoplot(boost_tree_rs) + theme_light()
 
 # Identify best values from the tuning process
 boost_tree_rs %>%
@@ -648,9 +884,6 @@ boost_stoc_rs <- tune_grid(
   grid = boost_stoc_grid
 )
 
-# Use autoplot() to examine how different parameter configurations relate to accuracy 
-autoplot(boost_stoc_rs) + theme_light()
-
 # Identify best values from the tuning process
 boost_stoc_rs %>%
   tune::show_best(metric = "roc_auc") %>%
@@ -687,23 +920,6 @@ final_simple_fit <- wf_boost_final %>%
 # Final fit
 final_boost_fit <- last_fit(boost_final_spec, IsOfConcern~., fish_split)
 
-# Bind predictions and original data
-boost_test_rs <- cbind(fish_test, final_boost_fit$.predictions)
-boost_test_rs <- boost_test_rs[, -16] # Remove duplicate column
-
-# Compute a confusion matrix
-cm <- boost_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
-
-# View confusion matrix
-autoplot(cm, type = "heatmap") +
-  theme(axis.text.x = element_text(size = 12),
-        axis.text.y = element_text(size = 12),
-        axis.title = element_text(size = 14),
-        panel.background = element_rect(fill = "#F8F8F8"),
-        plot.background = element_rect(fill = "#F8F8F8")) +
-  labs(title = "Figure 2: Confusion matrix of predictions on test data.")
-
-
 # Store accuracy and auc metrics
 tibble_boost <- final_boost_fit %>% collect_metrics()
 tibble_boost %>% 
@@ -716,33 +932,90 @@ final_boost_accuracy <- tibble_boost %>%
 final_boost_auc <- tibble_boost %>%
   filter(.metric == "roc_auc") %>%
   pull(.estimate)
+
+# Bind predictions and original data
+boost_test_rs <- cbind(fish_test, final_boost_fit$.predictions)[, -16]
+
+# Compute a confusion matrix
+cm_boost <- boost_test_rs %>% yardstick::conf_mat(truth = IsOfConcern, estimate = .pred_class) 
+
+# Create the confusion matrix heatmap plot
+autoplot(cm_boost, type = "heatmap") +
+  custom_palette +  # Apply the custom color palette
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    panel.background = element_blank(),
+    plot.background = element_blank()
+  ) +
+  labs(title = "Confusion matrix of random boosted predictions on test data.")
+
+
+# Calculate rates from the confusion matrix
+TP_boost <- cm_boost$table[2, 2]
+FP_boost <- cm_boost$table[2, 1]
+TN_boost <- cm_boost$table[1, 1]
+FN_boost <- cm_boost$table[1, 2]
+TPR_boost <- TP_boost / (TP_boost + FN_boost)  # True Positive Rate
+FPR_boost <- FP_boost / (FP_boost + TN_boost)  # False Positive Rate
+TNR_boost <- TN_boost / (TN_boost + FP_boost)  # True Negative Rate
+FNR_boost <- FN_boost / (TP_boost + FN_boost)  # False Negative Rate
+
+# Add rates to cm df
+boost_cm_vec <- c(TPR_boost, FPR_boost, TNR_boost, FNR_boost)
+cm_df$Boosting <- boost_cm_vec
 ```
 
 The accuracy of the boosting was `r round(final_boost_accuracy, 3)`. This is higher than the dummy classifier, but slightly lower that the decision tree. This model had an auc of `r round(final_forest_auc, 3)`, which is the best of all models.
 
-### Results
+## Results
+
+### Model selection
 
 I want to compare accuracy and area under the curve of all models created. 
 
 ```{r}
+# Name models in vec
 models <- c("Dummy", "Lasso", "KNN", "Decision Tree", "Bagging", "Random Forest", "Boosting")
+
+# Create accuracy vec
 accuracy <- c(dummy, final_lasso_accuracy, final_knn_accuracy, final_tree_accuracy, final_bag_accuracy, final_forest_accuracy, final_boost_accuracy)
 
+# Make df
 accuracy_df <- data.frame(models, accuracy)
-print(accuracy_df)
 
+# Create a factor with the desired order for models
+accuracy_df$models <- factor(accuracy_df$models, levels = c("Dummy", "Lasso", "KNN", "Decision Tree", "Bagging", "Random Forest", "Boosting"))
+
+# Create the plot
 ggplot(accuracy_df, aes(x = models, y = accuracy)) +
-  geom_col(fill = "#69b3a2") +
-  theme_minimal()
+  geom_col(fill = "#4a6c75") +
+  theme_minimal() +
+  labs(title = "Accuracy was similar across all models",
+    x = NULL,        
+    y = "Accuracy") +
+  theme(plot.background = element_blank(),
+        panel.background = element_blank())
 
+# Create auc vec
 auc <- c(final_lasso_auc, final_knn_auc, final_tree_auc, final_bag_auc, final_forest_auc, final_boost_auc)
 
+# Make df
 auc_df <- data.frame(models[-1], auc)
 print(auc_df)
 
-ggplot(auc_df, aes(x = models[-1], y = auc)) +
-  geom_col(fill = "#69b3a2") +
-  theme_minimal()
+# Create a factor with the desired order for models
+auc_df$models <- factor(auc_df$models, levels = c("Lasso", "KNN", "Decision Tree", "Bagging", "Random Forest", "Boosting"))
+
+ggplot(auc_df, aes(x = models, y = auc)) +
+  geom_col(fill = "#4a6c75") +
+  theme_minimal() +
+  labs(title = "Boosting was the highest performing model",
+    x = NULL,        
+    y = "Area under ROC curve") +
+  theme(plot.background = element_blank(),
+        panel.background = element_blank())
 ```
 
 Because the dataset is very imbalanced with the proportion of threatened species being small, the accuracies between models don't vary much. It is difficult to get much more accurate than always choosing not threatened (the dummy classifier) because that already has an accuracy of `r dummy`. All models performed better than the dummy classifier though, so that is encouraging. Looking at AUC we see that boosting decision trees was the most successful of the models when applied to the testing data. 
@@ -762,9 +1035,12 @@ var_imp_boost <- wf_boost_final %>%
     Variable = fct_reorder(Variable, Importance))
 var_imp_boost %>% 
   ggplot(aes(x = Importance, y = Variable)) +
-  geom_col() +
+  geom_col(fill = "#57ba72") +
+  theme_minimal() +
   scale_x_continuous(expand = c(0, 0)) +
-  labs(y = NULL)
+  labs(y = "Feature",
+       x = "Importance",
+       title = "Feature importance of boosting model")
 ```
 
 It looks like length, having no special electrogenic ability, other body shape, and depth range (deep) are driving the model the most. 
