@@ -16,3 +16,4 @@ These examples are published on [Quarto Pub](https://elkewind.quarto.pub/).
 
 **Machine Learning**<br>
 [Boosting as a Species Distribution Model in R](https://elkewind.quarto.pub/boosting-as-a-species-distribution-model-in-r/)
+[ML Model Comparison for Fish Threat in R](https://elkewind.quarto.pub/ml-model-comparison-for-fish-threat-in-r/)
