@@ -1,0 +1,517 @@
+---
+title: "Mapping Kelp Analysis Results"
+author: "Elke Windschitll"
+date: "2023-11-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load libraries
+library(sf)
+library(terra)
+library(tmap)
+library(readr)
+library(raster)
+library(leaflet)
+library(dplyr)
+library(maptiles)
+library(tidyterra)
+library(cowplot)
+```
+
+```{r}
+#---- Set up the data directory (wherever your download of our Google Shared Drive lives)
+data_dir <- "/Users/elkewindschitl/Documents/MEDS/kelpGeoMod/final-data"
+
+maxent_pal <- "BuGn" 
+dark_blue <- "#083763"
+```
+
+```{r}
+# Read in data
+# Read in AOI
+aoi <- st_read(file.path(data_dir, "02-intermediate-data/02-aoi-sbchannel-shapes-intermediate/aoi-sbchannel.shp"))
+
+# Read in the counties data
+counties <- st_read(file.path(data_dir, "01-raw-data/02-ca-county-land-boundaries-raw/California_County_Boundaries/cnty19_1.shp"))
+
+# Convert counties data to WGS84
+counties <- st_transform(counties, "+proj=longlat +datum=WGS84")
+
+# Read in federal boundaries
+fed_bounds <- st_read(file.path(data_dir, "01-raw-data/federal_boundaries/USMaritimeLimitsNBoundaries.shp")) %>% 
+  filter(REGION == "Pacific Coast")
+
+# Read in the 3-nautical mile state boundary
+state_bounds <- st_read(file.path(data_dir, "01-raw-data/state_boundaries/stanford-sg211gq3741-shapefile/sg211gq3741.shp"))
+
+# Read in MPAs
+mpas <- st_read(file.path(data_dir, "01-raw-data/04-mpa-boundaries-raw/California_Marine_Protected_Areas_[ds582]/California_Marine_Protected_Areas_[ds582].shp"))
+
+# Read in sandy-bottom raster
+sandy_raster <- raster(file.path(data_dir, "03-analysis-data/05-substrate-analysis/sandy-bottom-1km.tif"))
+
+# Read in rocky-bottom raster
+rocky_raster <- raster(file.path(data_dir, "03-analysis-data/05-substrate-analysis/rocky-bottom-1km.tif"))
+
+# Read in kelp brick
+kelp <- brick(file.path(data_dir, "02-intermediate-data/05-kelp-area-biomass-intermediate/kelp-area-brick.tif"))
+
+# Create function to average kelp area per grid cell over all years by quarter
+calc_seasonal_means_brick <- function(rast_to_convert) {
+
+  quarter_sets <- list(seq(from = 1, to = 36, by = 4), # Q1s (winter)
+                       seq(from = 2, to = 36, by = 4), # Q2s (spring)
+                       seq(from = 3, to = 36, by = 4), # Q3s (summer)
+                       seq(from = 4, to = 36, by = 4)) # Q4s (fall)
+  
+  all_seasons_brick <- brick() # set up brick to hold averaged layers for each season (will have 4 layers at the end)
+  
+  for (i in seq_along(quarter_sets)) {
+    
+    season_brick_holder <- brick() # hold all layers for one season, then reset for next season
+    
+    for (j in quarter_sets[[i]]) {
+      season_brick <- brick() # hold single layer in a season, then reset for next layer
+      season_brick <- addLayer(season_brick, rast_to_convert[[j]]) # add single layer to initialized brick
+      season_brick_holder <- addLayer(season_brick_holder, season_brick) # add this layer to the holder for this season, and repeat until have all layers from season
+    }
+
+    season_averaged_layer <- calc(season_brick_holder, mean) # after having all layers from season, take the mean
+    all_seasons_brick <- addLayer(all_seasons_brick, season_averaged_layer) # add mean to the brick holding all averaged layers, and then repeat for the next season
+  }
+  
+  return(all_seasons_brick) # return the resulting brick object
+}
+
+kelp_all <- calc_seasonal_means_brick(rast_to_convert = kelp)
+
+kelp_quarter1 <- kelp_all[[1]]
+kelp_quarter2 <- kelp_all[[2]]
+kelp_quarter3 <- kelp_all[[3]]
+kelp_quarter4 <- kelp_all[[4]]
+
+# Maxent Outputs
+# Prep for plotting
+# ---------------------------------Quarter 1  ---------------------------------
+# Read in kelp data and make sf object
+# kelp_1 <- read_csv(file.path(data_dir, "03-analysis-data/04-maxent-analysis/quarter-1/kelp-presence-1.csv")) %>% 
+#   st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+# Read in the maxent output
+maxent_quarter_1 <- raster(file.path(data_dir, "03-analysis-data/04-maxent-analysis/results/maxent-quarter-1-output.tif"))
+
+# ---------------------------------Quarter 2  ---------------------------------
+
+# kelp_2 <- read_csv(file.path(data_dir, "03-analysis-data/04-maxent-analysis/quarter-2/kelp-presence-2.csv")) %>% 
+#   st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+# Read in the maxent output
+maxent_quarter_2 <- raster(file.path(data_dir, "03-analysis-data/04-maxent-analysis/results/maxent-quarter-2-output.tif"))
+
+# ---------------------------------Quarter 3  ---------------------------------
+
+# kelp_3 <- read_csv(file.path(data_dir, "03-analysis-data/04-maxent-analysis/quarter-3/kelp-presence-3.csv")) %>% 
+#   st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+# Read in the maxent output
+maxent_quarter_3 <- raster(file.path(data_dir, "03-analysis-data/04-maxent-analysis/results/maxent-quarter-3-output.tif"))
+
+# ---------------------------------Quarter 4  ---------------------------------
+
+# read_csv(file.path(data_dir, "03-analysis-data/04-maxent-analysis/quarter-4/kelp-presence-4.csv")) %>% 
+#   st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+# Read in the maxent output
+maxent_quarter_4 <- raster(file.path(data_dir, "03-analysis-data/04-maxent-analysis/results/maxent-quarter-4-output.tif"))
+
+```
+
+### Masked output
+
+```{r}
+# Prep data
+# Reclassify values <0.4 to NA for each quarter and mask out areas with kelp
+rcl_1 <- maxent_quarter_1 %>% 
+  reclassify(cbind(0, 0.4, NA), right=FALSE) %>% 
+  mask(mask = kelp_quarter1, inverse = TRUE)
+rcl_2 <- maxent_quarter_2 %>% 
+  reclassify(cbind(0, 0.4, NA), right=FALSE) %>% 
+  mask(mask = kelp_quarter2, inverse = TRUE)
+rcl_3 <- maxent_quarter_3 %>%  
+ reclassify(cbind(0, 0.4, NA), right=FALSE) %>% 
+  mask(mask = kelp_quarter3, inverse = TRUE)
+rcl_4 <- maxent_quarter_4 %>%  
+ reclassify(cbind(0, 0.4, NA), right=FALSE) %>% 
+  mask(mask = kelp_quarter4, inverse = TRUE)
+
+good_cells_stack <- stack(rcl_1, rcl_2, rcl_3, rcl_4) #stack
+
+
+# Mask to areas that meet a minimum of 0.4 for all quarters
+# Create an empty raster with the same extent and resolution as the input rasters
+maxent_mask <- raster(good_cells_stack[[1]])
+values(maxent_mask) <- 1  # Set all cells in the mask raster to a common value
+
+# Iterate over each raster and update the mask raster where they overlap
+for (i in 1:4) {
+  maxent_mask <- maxent_mask * (good_cells_stack[[i]])  # Update the mask where raster values are zero
+}
+
+# Mask rcl_1
+masked_rcl_1 <- mask(rcl_1, maxent_mask)
+
+# Mask rcl_2
+masked_rcl_2 <- mask(rcl_2, maxent_mask)
+
+# Mask rcl_3
+masked_rcl_3 <- mask(rcl_3, maxent_mask)
+
+# Mask rcl_4
+masked_rcl_4 <- mask(rcl_4, maxent_mask)
+
+
+# Take the mean value of all four quarters
+mean_masked_maxent <- mean(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
+range_masked_maxent <- range(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
+max_masked_maxent <- max(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
+
+
+sub_masked_model <- mask(x = mean_masked_maxent, mask = sandy_raster, inverse = FALSE)
+```
+
+```{r}
+
+# Check the crs, and reset the crs if different
+identical(crs(sandy_raster), crs(mean_masked_maxent))
+
+# small <- res(rocky_raster)[1] # grab our smallest resolution
+# large <- res(mean_masked_maxent)[2] # grab our largest resoultion
+# 
+# # Calculate the resample factor
+# factor <- c(large / small, large / small)  # Divide the target resolution (3 km) by the source resolution (1 km)
+# 
+# # Convert to package terra
+rocky_terra <- rast(rocky_raster)
+sandy_terra <- rast(sandy_raster)
+maxent_terra <- rast(mean_masked_maxent)
+range_maxent_terra <- rast(range_masked_maxent)
+max_maxent_terra <- rast(max_masked_maxent)
+# 
+# # Disaggregate to match susbtrate resolution
+# disagg_max <- terra::disagg(x = maxent_terra,
+#                             fact = factor, # number of cells in each direction
+#                             method = "near")
+# 
+# # resample to match mask exactly
+# resampled <- terra::resample(disagg_max, rocky_terra, method = "near")
+
+# Mask maxent to areas with rocky-bottom
+sub_masked_model <- terra::mask(x = maxent_terra, mask = sandy_terra, inverse = FALSE)
+range_masked_model <- terra::mask(x = range_maxent_terra, mask = sandy_terra, inverse = FALSE)
+max_masked_model <- terra::mask(x = max_maxent_terra, mask = sandy_terra, inverse = FALSE)
+
+```
+
+```{r}
+
+# sub_masked_model_downsampled <- aggregate(sub_masked_model, fact = 100)  # Adjust the factor as needed
+# 
+# masked_tm <- tm_shape(sub_masked_model_downsampled , raster.warp = FALSE) +
+#   tm_raster() + 
+#   
+#   tm_shape(counties) +
+#   tm_polygons() +
+# 
+#   tm_shape(aoi, bbox = bbox) +
+#   tm_borders(lwd = 2, col = dark_blue)
+#   
+# masked_tm  
+
+```
+
+This map shows the mean predicted habitat suitability for grid cells that:
+  
+  2. Did not have any kelp seen in them (as of 2014-2022 from remotely sensed data)
+  
+  3. Have a majority rocky or mixed substrate
+  
+```{r}
+aoi <- st_transform(aoi, crs = 4326)
+mpas <- st_transform(mpas, crs = 4326)
+fed_bounds <- st_transform(fed_bounds, crs = 4326)
+state_bounds <- st_transform(state_bounds, crs = 4326)
+
+# Define the amount of buffer you want to add in degrees
+buffer_size <- 10000
+
+# Create a buffer around your AOI
+buffered_aoi <- st_buffer(aoi, buffer_size)
+
+aoi_mpas <- st_intersection(mpas, buffered_aoi)
+aoi_fed_bounds <- st_intersection(fed_bounds, buffered_aoi)
+aoi_state_bounds <- st_intersection(state_bounds, buffered_aoi)
+```
+
+```{r}
+# Remove na values from raster
+no_na <- mask(sub_masked_model, !is.na(sub_masked_model))
+no_na_no_mpa <- mask(no_na, aoi_mpas, inverse = TRUE)
+
+# Convert to point data
+target_points <- as.data.frame(no_na_no_mpa, xy = TRUE, na.rm = TRUE) %>% 
+  st_as_sf(coords = c("x", "y"),
+           crs = st_crs(4326))
+
+tm_shape(target_points) +
+  tm_dots()
+
+tm_shape(no_na) +
+  tm_raster()
+```
+
+
+```{r}
+tmap_mode("plot")
+tm_shape(basemap) +
+  tm_rgb() +
+tm_shape(aoi_fed_bounds) +
+  tm_lines() +
+  
+  tm_shape(aoi_state_bounds) +
+  tm_polygons(col = "orange3") +
+  
+  tm_shape(aoi_mpas) +
+  tm_polygons(col = "red4") +
+
+  tm_shape(maxent_quarter_1) +
+  tm_raster()
+  
+```
+
+```{r}
+# define the tile server parameters
+osmpos <- create_provider(
+  name = "CARTO.POSITRON",
+  url = "https://cartodb-basemaps-{subDomain}.global.ssl.fastly.net/light_only_labels/{level}/{col}/{row}.png",
+  sub = c("a", "b", "c", "d"),
+  citation = "© OpenStreetMap contributors © CARTO "
+)
+# dowload tiles and compose raster (SpatRaster)
+basemap <- get_tiles(
+  x = buffered_aoi, provider = "CartoDB.DarkMatterNoLabels", crop = TRUE,
+  cachedir = tempdir(), verbose = TRUE
+)
+
+# display map
+plot_tiles(basemap)
+
+plot(st_geometry(aoi_state_bounds), col = NA, add = TRUE)
+
+plot(st_geometry(aoi), col = NA, add = TRUE)
+
+plot(st_geometry(aoi_fed_bounds), col = NA, add = TRUE)
+
+# display credits
+mtext(
+  text = get_credit(osmpos),
+  side = 1, line = -1, adj = 1,
+  cex = .9, font = 3
+)
+```
+
+```{r}
+small_box <- tribble(
+  ~lat, ~lon,
+  34.35, -119.54412, 
+  34.5, -120.30751, 
+  34.35, -120.30751, 
+  34.5, -119.54412
+) |> 
+  st_as_sf(coords = c("lon", "lat"), 
+           crs = "EPSG: 4326") |> 
+  st_bbox() |>  
+  st_as_sfc()
+```
+
+```{r}
+
+
+# tmap_mode("view")
+# tmap_mode("plot")
+# big_plot <-tm_shape(basemap) +
+#   tm_rgb() +
+#   
+#   tm_shape(aoi_fed_bounds) +
+#   tm_lines(lty = 6) +
+#   
+#   tm_shape(aoi_state_bounds) +
+#   tm_borders(col = "black", lty = 1) +
+#   
+#   tm_shape(aoi_mpas) +
+#   tm_borders(col = "gray", alpha = 0.1) +
+#   tm_fill(col = "gray", alpha = 0.05) +
+#   
+#   tm_shape(aoi) +
+#   tm_borders(col = "#203e63", lwd = 2) +
+#   
+#   tm_shape(target_points) +
+#   tm_dots(col = "#849638", size = 0.05) +
+#   
+#   tm_shape(small_box) +
+#   tm_borders(col = "#de8728", lwd = 0.2)
+```
+
+```{r}
+big_plot <- ggplot() +
+  geom_spatraster_rgb(
+  mapping = aes(),
+  basemap,
+  interpolate = TRUE,
+  r = 1,
+  g = 2,
+  b = 3
+) +
+  geom_sf(data = aoi_fed_bounds, 
+          linetype = 4) +
+  
+  geom_sf(data = aoi_state_bounds, 
+          col = "black",
+          alpha = 0,
+          linetype = "solid",
+          linewidth = 0.3) +
+  
+  geom_sf(data = aoi_mpas, 
+          fill = "#a6a6a6", 
+          colour = "#a6a6a6", 
+          alpha = 0.1) +
+  
+  geom_sf(data = aoi, 
+          color = "#203e63", 
+          alpha = 0,
+          linewidth = 0.8) +
+  
+  geom_sf(data = target_points,
+          color = "#849638", 
+          size = 0.05) +
+  
+  geom_sf(data = small_box,
+          colour = "#de8728",
+          alpha = 0, 
+          linewidth = 0.1) +
+  theme(panel.background = element_blank(),
+        plot.background = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        panel.grid = element_blank())
+big_plot
+```
+
+```{r}
+
+aoi_mpas2 <- st_crop(mpas, small_box)
+aoi_state_bounds2 <- st_crop(state_bounds, small_box)
+
+# dowload tiles and compose raster (SpatRaster)
+basemap2 <- get_tiles(
+  x = small_box, provider = "CartoDB.DarkMatterNoLabels", crop = TRUE,
+  cachedir = tempdir(), verbose = TRUE
+)
+
+# small_plot <- tm_shape(basemap2) +
+#   tm_rgb() +
+#   
+#   tm_shape(aoi_state_bounds2) +
+#   tm_borders(col = "black", lty = 1) +
+#   
+#   tm_shape(aoi_mpas2) +
+#   tm_borders(col = "gray", alpha = 0.1) +
+#   tm_fill(col = "gray", alpha = 0.05) +
+#   
+#   tm_shape(target_points) +
+#   tm_dots(col = "#849638", size = 0.2) +
+#   
+#   tm_shape(small_box) +
+#   tm_borders(col = "#de8728", lwd = 2)
+
+```
+
+```{r}
+
+small_plot <- ggplot() +
+  geom_spatraster_rgb(
+  mapping = aes(),
+  basemap2,
+  interpolate = TRUE,
+  r = 1,
+  g = 2,
+  b = 3
+) +
+  geom_sf(data = aoi_fed_bounds2, 
+          linetype = 4) +
+  
+  geom_sf(data = aoi_state_bounds2, 
+          col = "black",
+          alpha = 0,
+          linetype = "solid",
+          linewidth = 0.3) +
+  
+  geom_sf(data = aoi_mpas2, 
+          fill = "#a6a6a6", 
+          colour = "#a6a6a6", 
+          alpha = 0.1) +
+  
+  geom_sf(data = target_points,
+          color = "#849638", 
+          size = 2) +
+  
+  geom_sf(data = small_box,
+          colour = "#de8728",
+          alpha = 0, 
+          linewidth = 1) +
+  
+  annotate("text", 
+           x = -119.6982, 
+           y = 34.43, 
+           label = "Santa Barbara",
+           color = "#a6a6a6") +
+  annotate("text", 
+           x = -119.86, 
+           y = 34.43, 
+           label = "Goleta",
+           color = "#a6a6a6") +
+    annotate("text", 
+           x = -120.2149, 
+           y = 34.478, 
+           label = "Gaviota",
+           color = "#a6a6a6") +
+  
+  theme(panel.background = element_blank(),
+        plot.background = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank())
+small_plot
+```
+
+```{r}
+# Define the plot background color
+bg_color <- "#262626"
+
+# Arrange the plots using plot_grid
+combined_plot <- plot_grid(small_plot, big_plot, ncol = 1, align = "v",  axis = "tb")
+
+# Set the background color for the entire combined plot
+combined_plot <- combined_plot + 
+  theme(plot.background = element_rect(fill = "#262626"),
+        axis.ticks = element_blank())
+
+# Display the combined plot
+print(combined_plot)
+```
+
