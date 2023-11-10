@@ -1,9 +1,18 @@
 ---
-title: "Mapping Kelp Analysis Results"
+title: "Mapping Locations for Kelp Aquaculture in R"
 author: "Elke Windschitll"
 date: "2023-11-02"
 output: html_document
 ---
+Description: In this qmd, I create a publishable map of locations that have habitat that is likely suitable for kelp aquaculture near Santa Barbara.
+
+## Introduction
+
+While earning my master's of environmental data science from the University of California, Santa Barbara, I completed a group capstone project with three other peers. Our clients included Natalie Dornan, a researcher at UCSB, and Ocean Rainforest, an aquaculture company with operations in Santa Barbara. We were tasked with combining open source data sets on giant kelp and various oceanographic factors in the region to create one synthesized data product. We were asked to use that data product to model habitat suitability for giant kelp to aid Ocean Rainforest in siting aquaculture projects in the future. Here, I map the final results of those efforts. 
+
+## The Data
+
+I used five types of data in this process. I used the model results from our species distribution habitat suitability modeling, substrate data, and boundary data of state boundaries, federal boundaries, and marine protected areas. Metadata on these data sources can be found in the [kelpGeoMod data repository](https://drive.google.com/drive/u/2/folders/1sJq_9RnsARR9mkmrcrn4O_1630VD-e-t).
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -16,24 +25,24 @@ library(terra)
 library(tmap)
 library(readr)
 library(raster)
-library(leaflet)
 library(dplyr)
 library(maptiles)
-library(tidyterra)
 library(cowplot)
+library(ggspatial)
+library(tidyterra)
+library(ggplot2)
+
+#---- Set up the data directory
+#data_dir <- insert your file path to your data
 ```
 
-```{r}
-#---- Set up the data directory (wherever your download of our Google Shared Drive lives)
+```{r include=FALSE}
 data_dir <- "/Users/elkewindschitl/Documents/MEDS/kelpGeoMod/final-data"
-
-maxent_pal <- "BuGn" 
-dark_blue <- "#083763"
 ```
 
 ```{r}
 # Read in data
-# Read in AOI
+# Read in project AOI
 aoi <- st_read(file.path(data_dir, "02-intermediate-data/02-aoi-sbchannel-shapes-intermediate/aoi-sbchannel.shp"))
 
 # Read in the counties data
@@ -56,11 +65,15 @@ mpas <- st_read(file.path(data_dir, "01-raw-data/04-mpa-boundaries-raw/Californi
 sandy_raster <- raster(file.path(data_dir, "03-analysis-data/05-substrate-analysis/sandy-bottom-1km.tif"))
 
 # Read in rocky-bottom raster
-rocky_raster <- raster(file.path(data_dir, "03-analysis-data/05-substrate-analysis/rocky-bottom-1km.tif"))
+#rocky_raster <- raster(file.path(data_dir, "03-analysis-data/05-substrate-analysis/rocky-bottom-1km.tif"))
 
 # Read in kelp brick
 kelp <- brick(file.path(data_dir, "02-intermediate-data/05-kelp-area-biomass-intermediate/kelp-area-brick.tif"))
 
+```
+
+```{r}
+# (Code from Erika)
 # Create function to average kelp area per grid cell over all years by quarter
 calc_seasonal_means_brick <- function(rast_to_convert) {
 
@@ -94,7 +107,9 @@ kelp_quarter1 <- kelp_all[[1]]
 kelp_quarter2 <- kelp_all[[2]]
 kelp_quarter3 <- kelp_all[[3]]
 kelp_quarter4 <- kelp_all[[4]]
+```
 
+```{r}
 # Maxent Outputs
 # Prep for plotting
 # ---------------------------------Quarter 1  ---------------------------------
@@ -177,17 +192,14 @@ masked_rcl_4 <- mask(rcl_4, maxent_mask)
 
 # Take the mean value of all four quarters
 mean_masked_maxent <- mean(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
-range_masked_maxent <- range(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
-max_masked_maxent <- max(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
+#range_masked_maxent <- range(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
+#max_masked_maxent <- max(masked_rcl_1, masked_rcl_2, masked_rcl_3, masked_rcl_4)
 
-
-sub_masked_model <- mask(x = mean_masked_maxent, mask = sandy_raster, inverse = FALSE)
+# Mask to areas with sandy-bottom substrate
+#sub_masked_model <- mask(x = mean_masked_maxent, mask = sandy_raster, inverse = FALSE)
 ```
 
 ```{r}
-
-# Check the crs, and reset the crs if different
-identical(crs(sandy_raster), crs(mean_masked_maxent))
 
 # small <- res(rocky_raster)[1] # grab our smallest resolution
 # large <- res(mean_masked_maxent)[2] # grab our largest resoultion
@@ -196,11 +208,11 @@ identical(crs(sandy_raster), crs(mean_masked_maxent))
 # factor <- c(large / small, large / small)  # Divide the target resolution (3 km) by the source resolution (1 km)
 # 
 # # Convert to package terra
-rocky_terra <- rast(rocky_raster)
+#rocky_terra <- rast(rocky_raster)
 sandy_terra <- rast(sandy_raster)
 maxent_terra <- rast(mean_masked_maxent)
-range_maxent_terra <- rast(range_masked_maxent)
-max_maxent_terra <- rast(max_masked_maxent)
+#range_maxent_terra <- rast(range_masked_maxent)
+#max_maxent_terra <- rast(max_masked_maxent)
 # 
 # # Disaggregate to match susbtrate resolution
 # disagg_max <- terra::disagg(x = maxent_terra,
@@ -210,10 +222,10 @@ max_maxent_terra <- rast(max_masked_maxent)
 # # resample to match mask exactly
 # resampled <- terra::resample(disagg_max, rocky_terra, method = "near")
 
-# Mask maxent to areas with rocky-bottom
+# Mask maxent to areas with sandy-bottom
 sub_masked_model <- terra::mask(x = maxent_terra, mask = sandy_terra, inverse = FALSE)
-range_masked_model <- terra::mask(x = range_maxent_terra, mask = sandy_terra, inverse = FALSE)
-max_masked_model <- terra::mask(x = max_maxent_terra, mask = sandy_terra, inverse = FALSE)
+#range_masked_model <- terra::mask(x = range_maxent_terra, mask = sandy_terra, inverse = FALSE)
+#max_masked_model <- terra::mask(x = max_maxent_terra, mask = sandy_terra, inverse = FALSE)
 
 ```
 
@@ -235,23 +247,27 @@ max_masked_model <- terra::mask(x = max_maxent_terra, mask = sandy_terra, invers
 ```
 
 This map shows the mean predicted habitat suitability for grid cells that:
+
+  1. Have a minimum of 0.4 habitat suitability in ALL quarters
   
   2. Did not have any kelp seen in them (as of 2014-2022 from remotely sensed data)
   
   3. Have a majority rocky or mixed substrate
   
 ```{r}
+# Transform to get every layer in same crs
 aoi <- st_transform(aoi, crs = 4326)
 mpas <- st_transform(mpas, crs = 4326)
 fed_bounds <- st_transform(fed_bounds, crs = 4326)
 state_bounds <- st_transform(state_bounds, crs = 4326)
 
-# Define the amount of buffer you want to add in degrees
+# Define the amount of aoi buffer I want
 buffer_size <- 10000
 
-# Create a buffer around your AOI
+# Create a buffer around the AOI
 buffered_aoi <- st_buffer(aoi, buffer_size)
 
+# Reduce shape file data sets to only in my area of interest + buffer
 aoi_mpas <- st_intersection(mpas, buffered_aoi)
 aoi_fed_bounds <- st_intersection(fed_bounds, buffered_aoi)
 aoi_state_bounds <- st_intersection(state_bounds, buffered_aoi)
@@ -260,6 +276,8 @@ aoi_state_bounds <- st_intersection(state_bounds, buffered_aoi)
 ```{r}
 # Remove na values from raster
 no_na <- mask(sub_masked_model, !is.na(sub_masked_model))
+
+# Mask out locations within mpas
 no_na_no_mpa <- mask(no_na, aoi_mpas, inverse = TRUE)
 
 # Convert to point data
@@ -267,40 +285,40 @@ target_points <- as.data.frame(no_na_no_mpa, xy = TRUE, na.rm = TRUE) %>%
   st_as_sf(coords = c("x", "y"),
            crs = st_crs(4326))
 
-tm_shape(target_points) +
-  tm_dots()
-
-tm_shape(no_na) +
-  tm_raster()
+# tm_shape(target_points) +
+#   tm_dots()
+# 
+# tm_shape(no_na) +
+#   tm_raster()
 ```
 
 
 ```{r}
-tmap_mode("plot")
-tm_shape(basemap) +
-  tm_rgb() +
-tm_shape(aoi_fed_bounds) +
-  tm_lines() +
-  
-  tm_shape(aoi_state_bounds) +
-  tm_polygons(col = "orange3") +
-  
-  tm_shape(aoi_mpas) +
-  tm_polygons(col = "red4") +
-
-  tm_shape(maxent_quarter_1) +
-  tm_raster()
+# tmap_mode("plot")
+# tm_shape(basemap) +
+#   tm_rgb() +
+# tm_shape(aoi_fed_bounds) +
+#   tm_lines() +
+#   
+#   tm_shape(aoi_state_bounds) +
+#   tm_polygons(col = "orange3") +
+#   
+#   tm_shape(aoi_mpas) +
+#   tm_polygons(col = "red4") +
+# 
+#   tm_shape(maxent_quarter_1) +
+#   tm_raster()
   
 ```
 
 ```{r}
 # define the tile server parameters
-osmpos <- create_provider(
-  name = "CARTO.POSITRON",
-  url = "https://cartodb-basemaps-{subDomain}.global.ssl.fastly.net/light_only_labels/{level}/{col}/{row}.png",
-  sub = c("a", "b", "c", "d"),
-  citation = "© OpenStreetMap contributors © CARTO "
-)
+# osmpos <- create_provider(
+#   name = "CARTO.POSITRON",
+#   url = "https://cartodb-basemaps-{subDomain}.global.ssl.fastly.net/light_only_labels/{level}/{col}/{row}.png",
+#   sub = c("a", "b", "c", "d"),
+#   citation = "© OpenStreetMap contributors © CARTO "
+# )
 # dowload tiles and compose raster (SpatRaster)
 basemap <- get_tiles(
   x = buffered_aoi, provider = "CartoDB.DarkMatterNoLabels", crop = TRUE,
@@ -308,20 +326,20 @@ basemap <- get_tiles(
 )
 
 # display map
-plot_tiles(basemap)
-
-plot(st_geometry(aoi_state_bounds), col = NA, add = TRUE)
-
-plot(st_geometry(aoi), col = NA, add = TRUE)
-
-plot(st_geometry(aoi_fed_bounds), col = NA, add = TRUE)
+# plot_tiles(basemap)
+# 
+# plot(st_geometry(aoi_state_bounds), col = NA, add = TRUE)
+# 
+# plot(st_geometry(aoi), col = NA, add = TRUE)
+# 
+# plot(st_geometry(aoi_fed_bounds), col = NA, add = TRUE)
 
 # display credits
-mtext(
-  text = get_credit(osmpos),
-  side = 1, line = -1, adj = 1,
-  cex = .9, font = 3
-)
+# mtext(
+#   text = get_credit(osmpos),
+#   side = 1, line = -1, adj = 1,
+#   cex = .9, font = 3
+# )
 ```
 
 ```{r}
@@ -367,6 +385,7 @@ small_box <- tribble(
 ```
 
 ```{r}
+# Plot the full AOI
 big_plot <- ggplot() +
   geom_spatraster_rgb(
   mapping = aes(),
@@ -377,7 +396,7 @@ big_plot <- ggplot() +
   b = 3
 ) +
   geom_sf(data = aoi_fed_bounds, 
-          linetype = 4) +
+          linetype = "dotdash") +
   
   geom_sf(data = aoi_state_bounds, 
           col = "black",
@@ -407,16 +426,88 @@ big_plot <- ggplot() +
         plot.background = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
-        panel.grid = element_blank())
+        panel.grid = element_blank()) +
+  annotation_scale(pad_x = unit(1.1, "in"), 
+                   pad_y = unit(0.55, "in"),
+                   bar_cols = c("black", "#262626"),
+                   height = unit(0.25, "cm"),
+                   text_col = "#a6a6a6") +
+  annotation_north_arrow(pad_x = unit(0.6, "in"),
+                         pad_y = unit(0.45, "in"),
+                         height = unit(0.25, "in"),
+                         width = unit(0.3, "in"),
+                         style = north_arrow_orienteering(fill = c("black", "#262626"),
+                                                          text_col = "#a6a6a6"))
+
 big_plot
 ```
 
 ```{r}
+# Create a custom legend plot
+legend_plot <- ggplot() +
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 0, linetype = "1"), color = "black", linewidth = 2) +
+  geom_segment(aes(x = 0, xend = 1, y = -1, yend = -1, linetype = "2"), color = "black", linewidth = 2) +
+  geom_segment(aes(x = 0, xend = 1, y = -2, yend = -2, linetype = "3"), color = "#a6a6a6", linewidth = 2) +
+  geom_segment(aes(x = 0, xend = 1, y = -3, yend = -3, linetype = "4"), color = "#203e63", linewidth = 2) +
+  scale_linetype_manual(values = c("solid", "dotdash", "solid", "solid")) +
+  theme(panel.background = element_blank(),
+        plot.background = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        panel.margin = margin(c(0,0,500,0)),
+        plot.margin = margin(c(0,0,10,0))) +
+  coord_cartesian(clip = "off") +
+    theme(legend.position = "none") +
+  annotate("text", 
+           x = .33, 
+           y = -.3, 
+           label = "State Boundary",
+           color = "black",
+           size = 12)+
+  annotate("text", 
+           x = .38, 
+           y = -1.3, 
+           label = "Federal Boundary",
+           color = "black",
+           size = 12)+
+  annotate("text", 
+           x = .47, 
+           y = -2.3, 
+           label = "Marine Protected Area",
+           color = "#a6a6a6",
+           size = 12) +
+  annotate("text", 
+           x = .39, 
+           y = -3.3, 
+           label = "Project Study Area",
+           color = "#203e63",
+           size = 12)
 
+legend_plot
+
+# Save the legend using this trick:
+# In RStudio, click on "Zoom", and then zoom the plot to the size and aspect ratio that satisfy you;
+# Right click on the plot, then "Copy Image Address", paste the address somewhere, you get the width (www) and height (hhh) information in the address;
+# ggsave("plot.png", width = www/90, height = hhh/90, dpi = 900) ggsave("plot.pdf", width = www/90, height = hhh/90) 
+#https://stackoverflow.com/questions/75020376/save-plot-exactly-as-previewed-in-the-plots-panel
+# http://127.0.0.1:35585/graphics/plot_zoom_png?width=520&height=400
+ggsave("images/kelp_legend.png", plot = legend_plot, width = 502/90, height = 400/90, units = "in", dpi = 900)
+
+# Adjust the legend plot size and appearance
+# legend_big_plot <- big_plot + draw_plot(legend_plot, .5, .5, .5, .5)
+# legend_big_plot
+# 
+# ggdraw(big_plot) + draw_plot(legend_plot, .92, .1, 1, .4)
+```
+
+```{r}
+# Crop mpas and state bounds to the inset map
 aoi_mpas2 <- st_crop(mpas, small_box)
 aoi_state_bounds2 <- st_crop(state_bounds, small_box)
 
-# dowload tiles and compose raster (SpatRaster)
+# Dowload tiles and compose raster (SpatRaster)
 basemap2 <- get_tiles(
   x = small_box, provider = "CartoDB.DarkMatterNoLabels", crop = TRUE,
   cachedir = tempdir(), verbose = TRUE
@@ -441,7 +532,7 @@ basemap2 <- get_tiles(
 ```
 
 ```{r}
-
+# Plot the inset map
 small_plot <- ggplot() +
   geom_spatraster_rgb(
   mapping = aes(),
@@ -451,8 +542,6 @@ small_plot <- ggplot() +
   g = 2,
   b = 3
 ) +
-  geom_sf(data = aoi_fed_bounds2, 
-          linetype = 4) +
   
   geom_sf(data = aoi_state_bounds2, 
           col = "black",
@@ -495,23 +584,61 @@ small_plot <- ggplot() +
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_blank(),
-        panel.grid = element_blank())
+        panel.grid = element_blank()) +
+  annotation_scale(pad_x = unit(0.7, "in"), 
+                   pad_y = unit(0.2, "in"),
+                   bar_cols = c("black", "#262626"),
+                   height = unit(0.25, "cm"),
+                   text_col = "#a6a6a6")
 small_plot
 ```
+
 
 ```{r}
 # Define the plot background color
 bg_color <- "#262626"
 
-# Arrange the plots using plot_grid
-combined_plot <- plot_grid(small_plot, big_plot, ncol = 1, align = "v",  axis = "tb")
+# Grab legend from big plot
+# legend <- get_legend(big_plot)
 
-# Set the background color for the entire combined plot
+# Arrange the plots using plot_grid
+combined_plot <- plot_grid(small_plot, big_plot, ncol = 1, axis = "l", rel_heights = c(1, 2.2))
+
+# Set the background color for the entire combined plot + add lines
 combined_plot <- combined_plot + 
-  theme(plot.background = element_rect(fill = "#262626"),
-        axis.ticks = element_blank())
+  theme(plot.background = element_blank(),
+        axis.ticks = element_blank()) +
+    draw_line(
+    x = c(0.316, 0.167),
+    y = c(0.523, 0.715),
+    color = "#de8728", size = 0.2
+  ) +
+      draw_line(
+    x = c(0.56, 0.836),
+    y = c(0.523, 0.715),
+    color = "#de8728", size = 0.2
+  ) 
 
 # Display the combined plot
 print(combined_plot)
+
+# Save the plot
+#http://127.0.0.1:35585/graphics/plot_zoom_png?width=1309&height=796
+ggsave("images/kelp_plot.png", plot = combined_plot, width = 1309/90, height = 796/90, units = "in", dpi = 900)
+```
+
+```{r}
+# # Combine the legend with your combined plot
+# combined_plot_with_legend <- plot_grid(combined_plot, legend_plot, ncol = 2, axis = "b", rel_widths = c(1, 0.5), rel_heights = c(1, 0.5))
+# 
+# 
+# # Set the background color for the entire combined plot
+# combined_plot_with_legend <- combined_plot_with_legend +
+#   theme(plot.background = element_rect(color = "#262626", fill = "#262626"),
+#         axis.ticks = element_blank())
+# 
+# # Display the combined plot with the legend
+# print(combined_plot_with_legend)
+
 ```
 
