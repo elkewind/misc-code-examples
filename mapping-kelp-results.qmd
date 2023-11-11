@@ -7,6 +7,10 @@ editor: source
 
 Description: In this qmd, I create a publishable map of locations that have habitat that is likely suitable for kelp aquaculture near Santa Barbara.
 
+<div style="text-align:center; border-radius: 10px; overflow: hidden;">
+  <img src="images/kelp-map.png" alt="Map of locations with habitat likely suitable for kelp aquaculture in the Santa Barbara Channel." width="90%" style="border-radius: 10px;">
+</div>
+
 ## Introduction
 
 While earning my master's of environmental data science from the University of California, Santa Barbara, I completed a group capstone project with three other peers. Our clients included Natalie Dornan, a researcher at UCSB, and Ocean Rainforest, an aquaculture company with operations in Santa Barbara. We were tasked with combining open source data sets on giant kelp and various oceanographic factors in the region to create one synthesized data product. We were asked to use that data product to model habitat suitability for giant kelp to aid Ocean Rainforest in siting aquaculture projects in the future. Here, I map the final results of those efforts. 
@@ -25,7 +29,7 @@ knitr::opts_chunk$set(echo = TRUE,
 
 First I load all of the libraries I will need. I use *sf* for handling shapefiles and vector data. I use *terra* and *raster* for handling raster data. *readr* is used to read in data, and *dplyr* is used for any data frame manipulation. I use *ggplot* to make my plots, but I leverage *maptiles* to get basemaps and *tidyterra* to use the basemap with ggplot. *ggspatial* is used to place a scale and arrow on the maps, and *cowplot* is used to plot maps together.
 
-```{r}
+```{r message=FALSE}
 # Load libraries
 library(sf)
 library(terra)
@@ -48,7 +52,7 @@ data_dir <- "/Users/elkewindschitl/Documents/MEDS/kelpGeoMod/final-data"
 
 I read in all of the necessary datasets from my local machine.
 
-```{r}
+```{r output=FALSE}
 # Read in data
 # Read in project AOI
 aoi <- st_read(file.path(data_dir, "02-intermediate-data/02-aoi-sbchannel-shapes-intermediate/aoi-sbchannel.shp"))
@@ -83,7 +87,7 @@ For the mapping, I want to find locations from the model output where raster gri
   
   2. Did not have any kelp seen in them (as of 2014-2022 from remotely sensed data)
   
-  3. Have a majority rocky or mixed substrate
+  3. Have sandy-bottom substrate
   
 Because our client wouldn't want to place an aquaculture effort where kelp already exists, we need to define where kelp has been seen growing in the past 6 years. My teammate, Erika, perfomed analyses to find the average amount of kelp in each grid cell by season. Here is that code:
 
@@ -183,50 +187,12 @@ plot(mean_masked_maxent)
 I'm most of the way there! Rocky-bottom seafloor is important habitat, so our client needs sandy-bottom seafloor to place aquaculture infrastructure and start a kelp farm. I only keep raster grid cells where sandy-bottom seafloor is present.
 
 ```{r}
-
-# small <- res(rocky_raster)[1] # grab our smallest resolution
-# large <- res(mean_masked_maxent)[2] # grab our largest resoultion
-# 
-# # Calculate the resample factor
-# factor <- c(large / small, large / small)  # Divide the target resolution (3 km) by the source resolution (1 km)
-# 
-# # Convert to package terra
-#rocky_terra <- rast(rocky_raster)
+# Convert to package terra
 sandy_terra <- rast(sandy_raster)
 maxent_terra <- rast(mean_masked_maxent)
-#range_maxent_terra <- rast(range_masked_maxent)
-#max_maxent_terra <- rast(max_masked_maxent)
-# 
-# # Disaggregate to match susbtrate resolution
-# disagg_max <- terra::disagg(x = maxent_terra,
-#                             fact = factor, # number of cells in each direction
-#                             method = "near")
-# 
-# # resample to match mask exactly
-# resampled <- terra::resample(disagg_max, rocky_terra, method = "near")
 
 # Mask maxent to areas with sandy-bottom
 sub_masked_model <- terra::mask(x = maxent_terra, mask = sandy_terra, inverse = FALSE)
-#range_masked_model <- terra::mask(x = range_maxent_terra, mask = sandy_terra, inverse = FALSE)
-#max_masked_model <- terra::mask(x = max_maxent_terra, mask = sandy_terra, inverse = FALSE)
-
-```
-
-```{r}
-
-# sub_masked_model_downsampled <- aggregate(sub_masked_model, fact = 100)  # Adjust the factor as needed
-# 
-# masked_tm <- tm_shape(sub_masked_model_downsampled , raster.warp = FALSE) +
-#   tm_raster() + 
-#   
-#   tm_shape(counties) +
-#   tm_polygons() +
-# 
-#   tm_shape(aoi, bbox = bbox) +
-#   tm_borders(lwd = 2, col = dark_blue)
-#   
-# masked_tm  
-
 ```
 
 Next, I prepare the other layers of my map. I ensure that their coordinate reference system matches my habitat layer, and I intersect to retrieve shapes only in the area of interest (plus a slight buffer).
@@ -250,7 +216,7 @@ aoi_fed_bounds <- st_intersection(fed_bounds, buffered_aoi)
 aoi_state_bounds <- st_intersection(state_bounds, buffered_aoi)
 ```
 
-I use the mpa layer to remove locations from the habitat map within any mpa. In this case, there was only one suitable location within an mpa. I then convert to point data to map.
+I use the MPA layer to remove locations from the habitat map within any Marine Protected Area. In this case, there was only one suitable location within an MPA. I then convert to point data for better mapping.
 
 ```{r}
 # Remove na values from raster
@@ -263,67 +229,18 @@ no_na_no_mpa <- mask(no_na, aoi_mpas, inverse = TRUE)
 target_points <- as.data.frame(no_na_no_mpa, xy = TRUE, na.rm = TRUE) %>% 
   st_as_sf(coords = c("x", "y"),
            crs = st_crs(4326))
-
-# tm_shape(target_points) +
-#   tm_dots()
-# 
-# tm_shape(no_na) +
-#   tm_raster()
-```
-
-
-```{r}
-# tmap_mode("plot")
-# tm_shape(basemap) +
-#   tm_rgb() +
-# tm_shape(aoi_fed_bounds) +
-#   tm_lines() +
-#   
-#   tm_shape(aoi_state_bounds) +
-#   tm_polygons(col = "orange3") +
-#   
-#   tm_shape(aoi_mpas) +
-#   tm_polygons(col = "red4") +
-# 
-#   tm_shape(maxent_quarter_1) +
-#   tm_raster()
-  
 ```
 
 I map my results using ggplot with a baselayer, state boundaries, federal boundaries, and marine protected areas. I create two maps -- one showing the entire area of interest, and one zoomed in to where the suitable habitat is located. I also make a custom legend to showcase what various boundaries in the map represent. Below I show each of these individual pieces.
 
-```{r}
-# define the tile server parameters
-# osmpos <- create_provider(
-#   name = "CARTO.POSITRON",
-#   url = "https://cartodb-basemaps-{subDomain}.global.ssl.fastly.net/light_only_labels/{level}/{col}/{row}.png",
-#   sub = c("a", "b", "c", "d"),
-#   citation = "© OpenStreetMap contributors © CARTO "
-# )
-# dowload tiles and compose raster (SpatRaster)
+```{r fig.width=10.19, fig.height=6.22, out.width="100%", out.height="100%"}
+# Dowload tiles and compose raster (SpatRaster)
 basemap <- get_tiles(
   x = buffered_aoi, provider = "CartoDB.DarkMatterNoLabels", crop = TRUE,
   cachedir = tempdir(), verbose = TRUE
 )
 
-# display map
-# plot_tiles(basemap)
-# 
-# plot(st_geometry(aoi_state_bounds), col = NA, add = TRUE)
-# 
-# plot(st_geometry(aoi), col = NA, add = TRUE)
-# 
-# plot(st_geometry(aoi_fed_bounds), col = NA, add = TRUE)
-
-# display credits
-# mtext(
-#   text = get_credit(osmpos),
-#   side = 1, line = -1, adj = 1,
-#   cex = .9, font = 3
-# )
-```
-
-```{r}
+# Get smaller box for inset map bounds
 small_box <- tribble(
   ~lat, ~lon,
   34.35, -119.54412, 
@@ -335,37 +252,7 @@ small_box <- tribble(
            crs = "EPSG: 4326") |> 
   st_bbox() |>  
   st_as_sfc()
-```
 
-```{r}
-
-
-# tmap_mode("view")
-# tmap_mode("plot")
-# big_plot <-tm_shape(basemap) +
-#   tm_rgb() +
-#   
-#   tm_shape(aoi_fed_bounds) +
-#   tm_lines(lty = 6) +
-#   
-#   tm_shape(aoi_state_bounds) +
-#   tm_borders(col = "black", lty = 1) +
-#   
-#   tm_shape(aoi_mpas) +
-#   tm_borders(col = "gray", alpha = 0.1) +
-#   tm_fill(col = "gray", alpha = 0.05) +
-#   
-#   tm_shape(aoi) +
-#   tm_borders(col = "#203e63", lwd = 2) +
-#   
-#   tm_shape(target_points) +
-#   tm_dots(col = "#849638", size = 0.05) +
-#   
-#   tm_shape(small_box) +
-#   tm_borders(col = "#de8728", lwd = 0.2)
-```
-
-```{r}
 # Plot the full AOI
 big_plot <- ggplot() +
   geom_spatraster_rgb(
@@ -423,7 +310,7 @@ big_plot <- ggplot() +
 big_plot
 ```
 
-```{r}
+```{r fig.width=5.91, fig.height=4.73, out.width="50%", out.height="50%"}
 # Create a custom legend plot
 legend_plot <- ggplot() +
   geom_segment(aes(x = 0, xend = 1, y = 0, yend = 0, linetype = "1"), color = "black", linewidth = 2) +
@@ -475,15 +362,9 @@ legend_plot
 #https://stackoverflow.com/questions/75020376/save-plot-exactly-as-previewed-in-the-plots-panel
 # http://127.0.0.1:35585/graphics/plot_zoom_png?width=520&height=400
 ggsave("images/kelp_legend.png", plot = legend_plot, width = 502/90, height = 400/90, units = "in", dpi = 900)
-
-# Adjust the legend plot size and appearance
-# legend_big_plot <- big_plot + draw_plot(legend_plot, .5, .5, .5, .5)
-# legend_big_plot
-# 
-# ggdraw(big_plot) + draw_plot(legend_plot, .92, .1, 1, .4)
 ```
 
-```{r}
+```{r fig.width=10.18, fig.height=5.46, out.width="100%", out.height="100%"}
 # Crop mpas and state bounds to the inset map
 aoi_mpas2 <- st_crop(mpas, small_box)
 aoi_state_bounds2 <- st_crop(state_bounds, small_box)
@@ -494,25 +375,6 @@ basemap2 <- get_tiles(
   cachedir = tempdir(), verbose = TRUE
 )
 
-# small_plot <- tm_shape(basemap2) +
-#   tm_rgb() +
-#   
-#   tm_shape(aoi_state_bounds2) +
-#   tm_borders(col = "black", lty = 1) +
-#   
-#   tm_shape(aoi_mpas2) +
-#   tm_borders(col = "gray", alpha = 0.1) +
-#   tm_fill(col = "gray", alpha = 0.05) +
-#   
-#   tm_shape(target_points) +
-#   tm_dots(col = "#849638", size = 0.2) +
-#   
-#   tm_shape(small_box) +
-#   tm_borders(col = "#de8728", lwd = 2)
-
-```
-
-```{r}
 # Plot the inset map
 small_plot <- ggplot() +
   geom_spatraster_rgb(
@@ -576,7 +438,7 @@ small_plot
 
 I use cowplot to combine these maps.
 
-```{r}
+```{r fig.width=13.09, fig.height=7.96, out.width="100%", out.height="100%"}
 # Define the plot background color
 bg_color <- "#262626"
 
@@ -611,19 +473,11 @@ ggsave("images/kelp_plot.png", plot = combined_plot, width = 1309/90, height = 7
 
 # Results
 
-Now that I have the combined map, and a custom legend, I chose to use a graphics editing software to finish off the map. I chose to use Inkscape, which is essentially an open-source version of Adobe Illustrator. In Inkscape I added a title, credits, a background, and our capstone hex logo. Here is the final product!
+Now that I have the combined map, and a custom legend, I chose to use a graphics editing software to finish off the map. I chose to use Inkscape, which is essentially an open-source version of Adobe Illustrator. In Inkscape I added a title, credits, a background, and our capstone hex logo. Here is the final product! 
 
-```{r}
-# # Combine the legend with your combined plot
-# combined_plot_with_legend <- plot_grid(combined_plot, legend_plot, ncol = 2, axis = "b", rel_widths = c(1, 0.5), rel_heights = c(1, 0.5))
-# 
-# 
-# # Set the background color for the entire combined plot
-# combined_plot_with_legend <- combined_plot_with_legend +
-#   theme(plot.background = element_rect(color = "#262626", fill = "#262626"),
-#         axis.ticks = element_blank())
-# 
-# # Display the combined plot with the legend
-# print(combined_plot_with_legend)
+<div style="text-align:center; border-radius: 10px; overflow: hidden;">
+  <img src="images/kelp-map.png" alt="Map of locations with habitat likely suitable for kelp aquaculture in the Santa Barbara Channel." width="80%" style="border-radius: 10px;">
+</div>
 
-```
+*Please note that these locations are based on habitat suitability -- a metric derived from environmental factors. There may be other factors that need to be considered when citing an aquaculture farm that relate to the activities already occurring in those parts of the ocean (such as fishing and boating). Permits must be obtained to conduct aquaculture efforts within state waters. The results of this project are only intended to inform our clients where habitat is most likely suitable for kelp growth.*
+
