@@ -1,6 +1,7 @@
 ---
 title: "Mapping Locations for Kelp Aquaculture in R"
 author: "Elke Windschitl"
+date: "2023-11-11"
 format: html
 editor: source
 ---
@@ -19,7 +20,7 @@ While earning my master's of environmental data science from the University of C
 
 I used six types of data in this process. I used the model results from our species distribution habitat suitability modeling, kelp data, substrate data, and boundary data of state boundaries, federal boundaries, and marine protected areas. Metadata on these data sources can be found in the [kelpGeoMod data repository](https://drive.google.com/drive/u/2/folders/1sJq_9RnsARR9mkmrcrn4O_1630VD-e-t).
 
-# Methods
+## Methods
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, 
@@ -128,7 +129,7 @@ kelp_quarter3 <- kelp_all[[3]]
 kelp_quarter4 <- kelp_all[[4]]
 ```
 
-## Masking the model output
+### Masking the model output
 
 As you can see from the quick plot below, the model output shows where along the Santa Barbara coastline has the highest predicted habitat suitability for kelp in each quarter. However, that information alone is not necessarily helpful in citing a new aquaculture farm. 
 
@@ -471,7 +472,7 @@ print(combined_plot)
 ggsave("images/kelp_plot.png", plot = combined_plot, width = 1309/90, height = 796/90, units = "in", dpi = 900)
 ```
 
-# Results
+## Results
 
 Now that I have the combined map, and a custom legend, I chose to use a graphics editing software to finish off the map. I chose to use Inkscape, which is essentially an open-source version of Adobe Illustrator. In Inkscape I added a title, credits, a background, and our capstone hex logo. Here is the final product! 
 
