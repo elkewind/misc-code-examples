@@ -17,7 +17,7 @@ Description: In this qmd, I take one Excel file sent to me by the Judgement, Dec
 
 ## Introduction
 
-The Judgement, Decision, & Social Comparison Lab in the University of Iowa Department of Psychological and Brain Sciences is interested in creating a tool for sequential and visual decision-making. I have been working to create visualizations and a Shiny application for the lab. Learn more about the project [here](https://github.com/elkewind/sample-decision-shiny). Recently, the PI needed iterative example bar charts for different types of decisions in order to test the particular visualization type. The PI intended to have undergraduate research assistants create these charts by hand in PowerPoint, but I offered to create a script to loop through making these plots with ggplot. Here, I share that process. This post has been approved by the PI.
+The Judgement, Decision, & Social Comparison Lab in the University of Iowa Department of Psychological and Brain Sciences is interested in creating a tool for sequential and visual decision-making. I have been working to create visualizations and a Shiny application for the lab. Learn more about the project [here](https://github.com/elkewind/sample-decision-shiny). Recently, the PI needed iterative example bar charts for different types of decisions in order to test a particular visualization type. The PI intended to have undergraduate research assistants create these charts by hand in PowerPoint, but I offered to create a script to loop through making these plots with ggplot. Here, I share that process. This post has been approved by the PI.
 
 ## The Data
 
@@ -29,11 +29,12 @@ The data here are crafted from the PI in order to test a particular type of visu
 
 ## Methods
 
-I start by loading necessary packages. I need *readr*, *dplyr*, and *ggplot* from the tidyverse, so I chose to load the *tidyverse* packages to read, clean, and plot data.
+I start by loading necessary packages. I need *readr*, *dplyr*, and *ggplot* from the tidyverse, so I chose to load the *tidyverse* packages to read, clean, and plot data. I use *cowplot* to combine two plots.
 
 ```{r}
 # Load libraries
 library(tidyverse)
+library(cowplot)
 ```
 
 ```{r include=FALSE}
@@ -92,7 +93,9 @@ for (i in seq_along(context_list)) {
 
 Now that I have the original data organized a bit better, I read it into another script to begin plotting. I started this process by making a plot for one of the data sets, and then I built that into a loop. First I will show the plotting steps. Below is the plot that the PI wanted me to recreate.
 
-# *Insert plot image here*
+<div style="text-align:center; border-radius: 10px; overflow: hidden;">
+  <img src="images/og-plot.png" alt="Plot with four cities and attributes of each one." width="90%" style="border-radius: 10px;">
+</div>
 
 This plot has a "positive side" indicated in green, and a "negative" side indicated in brown. This deliniation between positive and negative will be decided by the user of the the tool and the person making the decision. For example, if someone has four job offers in different cities, LA, Duluth, Atlanta, and Kansas City, that person will need to decide where to accept a job. Suppose the jobs themselves are similar, but differ in salaries. The salary is one aspect of the decision-making process, and the decision-maker will have to indicate how positive or negative the salary is for each position. Within the proposed tool, the decision maker would score each of the salary options. Additionally, the user will need to indicate how important each attribute of the decision is to them. For many, salary would be more important than nightlife in a given city. The attribute importance is shown by the width of the bar. Thus, the area of each green bar is equal to the importance of the attribute (salary vs nightlife) times the score of the option (50,000 dollars vs 75,000 dollars).
 
@@ -174,8 +177,8 @@ dat %>%
 
 Great! Now I plot.
 
-```{r}
-  # Create the plot with the data! Save as variable "plot"
+```{r fig.width=10, fig.height=5, out.width="100%", out.height="100%"}
+ # Create the plot with the data! Save as variable "plot"
   plot <- ggplot(dat) + # Initiate a ggplot with our data
     geom_rect(aes(xmin = x_pos_start, # for each positive data point define the x start location for the box
                   xmax = x_pos_end, # define the x end location for the box
@@ -200,6 +203,76 @@ Great! Now I plot.
     scale_y_continuous(breaks = label_heights, # use the label_heights we calculated above to place y axis labels
                        labels = plotting_order) # add the desired y axis labels in the correct order using vector stored above
 plot
+```
+
+This is nice, but I want to get as close as I possibly can to the example plot.
+
+```{r fig.width=10, fig.height=5, out.width="100%", out.height="100%"}
+  # Create the plot with the data! Save as variable "plot"
+  plot <- ggplot(dat) + # Initiate a ggplot with our data
+    geom_rect(aes(xmin = x_pos_start, # for each positive data point define the x start location for the box
+                  xmax = x_pos_end, # define the x end location for the box
+                  ymin = y_start, # define the y start location for the box
+                  ymax = y_end), # define the y end location for the box
+              fill = "#05af50", # color the positive boxes green
+              color = "white") + # outline the boxes with white
+    geom_rect(aes(xmin = x_neg_start, # # for each negative data point define the x start location for the box
+                  xmax = x_neg_end, # define the x end location for the box
+                  ymin = y_start, # define the y start location for the box
+                  ymax = y_end), # define the y end location for the box
+              fill = "#833c0c", # color the negative boxes brown
+              color = "white") + # outline the boxes with white
+    facet_wrap(~choice, 
+               nrow = 1) + # facet wrap the plot by city with 1 row
+    theme(plot.background = element_rect(fill = "white"),
+          panel.grid = element_blank(), # remove the panel background
+          axis.text.y = element_blank(), # control the y axis text
+          axis.text.x = element_blank(), # remove x axis text
+          axis.ticks = element_blank(), # remove x axis tick marks
+          strip.text = element_text(size = 12,
+                                    face = "bold",
+                                    color = "white"),
+          strip.background = element_rect(fill = "#4472c4", color = "white"),
+          panel.spacing.x=unit(0.1, "lines"),
+          plot.margin = unit(c(0.5, 0.5, 0.5, 0), "cm")) + # control facet choice labels
+    scale_y_continuous(breaks = label_heights, # use the label_heights we calculated above to place y axis labels
+                       labels = plotting_order, # add the desired y axis labels in the correct order using vector stored above
+                       expand = expansion(mult = 0)) + # remove padding to y axis
+  scale_x_continuous(expand = expansion(mult = 0)) # remove padding to x axis
+
+# Set axis color pattern
+axis_colors <- rep(c("#e8ebf5", "#ccd4ea"), 10) 
+
+# Create y-axis rectangles
+y_axis <- ggplot(dat) +
+  geom_rect(aes(xmin = -10,  # x start location
+                xmax = -5, # x end location
+                ymin = y_start, # y start location matching above
+                ymax = y_end), # y end location matching above
+            fill = axis_colors, # fill with color pattern
+            color = "white") + # set outline color
+  annotate("text", # add labels as annotation
+           x = -9.8, # text start location
+           y = label_heights, # text height 
+           label = plotting_order, # label order same as above
+           hjust = 0, 
+           size = 4.5) +
+  theme(panel.background = element_blank(), # empty panel
+        plot.background = element_rect(fill = "white"), # white background
+        axis.title = element_blank(), # remove axis title
+        axis.text = element_blank(), # remove axis text
+        axis.ticks = element_blank(), # remove axis ticks
+        plot.margin = unit(c(0, 0, 0, 0.5), "cm")) + # remove space except left margin
+      scale_y_continuous(expand = expansion(mult = 0)) + # remove padding to y axis
+  scale_x_continuous(expand = expansion(mult = 0)) # remove padding to x axis
+
+# Combine the two plots
+com_plot <- cowplot::plot_grid(y_axis, plot,
+                   align = "hv",
+                   axis = "tb",
+                   rel_widths = c(1,5))
+# Plot!
+com_plot
 ```
 
 Again, great! Now, I need to make a loop.
@@ -298,19 +371,58 @@ for (i in 2:10) {
               color = "white") + # outline the boxes with white
     facet_wrap(~choice, 
                nrow = 1) + # facet wrap the plot by city with 1 row
-    theme(panel.grid = element_blank(), # remove the panel background
-          axis.text.y = element_text(size = 12, vjust = 0.5), # control the y axis text
+    theme(plot.background = element_rect(fill = "white"),
+          panel.grid = element_blank(), # remove the panel background
+          axis.text.y = element_blank(), # control the y axis text
           axis.text.x = element_blank(), # remove x axis text
-          axis.ticks.x = element_blank(), # remove x axis tick marks
+          axis.ticks = element_blank(), # remove x axis tick marks
           strip.text = element_text(size = 12,
-                                    face = "bold")) + # control facet choice labels
+                                    face = "bold",
+                                    color = "white"),
+          strip.background = element_rect(fill = "#4472c4", color = "white"),
+          panel.spacing.x=unit(0.1, "lines"),
+          plot.margin = unit(c(0.5, 0.5, 0.5, 0), "cm")) + # control facet choice labels
     scale_y_continuous(breaks = label_heights, # use the label_heights we calculated above to place y axis labels
-                       labels = plotting_order) # add the desired y axis labels in the correct order using vector stored above
+                       labels = plotting_order, # add the desired y axis labels in the correct order using vector stored above
+                       expand = expansion(mult = 0)) + # remove padding to y axis
+  scale_x_continuous(expand = expansion(mult = 0)) # remove padding to x axis
+
+# Set axis color pattern
+axis_colors <- rep(c("#e8ebf5", "#ccd4ea"), 10) 
+
+# Create y-axis rectangles
+y_axis <- ggplot(dat) +
+  geom_rect(aes(xmin = -10,  # x start location
+                xmax = -5, # x end location
+                ymin = y_start, # y start location matching above
+                ymax = y_end), # y end location matching above
+            fill = axis_colors, # fill with color pattern
+            color = "white") + # set outline color
+  annotate("text", # add labels as annotation
+           x = -9.8, # text start location
+           y = label_heights, # text height 
+           label = plotting_order, # label order same as above
+           hjust = 0, 
+           size = 5) +
+  theme(panel.background = element_blank(), # empty panel
+        plot.background = element_rect(fill = "white"), # white background
+        axis.title = element_blank(), # remove axis title
+        axis.text = element_blank(), # remove axis text
+        axis.ticks = element_blank(), # remove axis ticks
+        plot.margin = unit(c(0, 0, 0, 0.5), "cm")) + # remove space except left margin
+      scale_y_continuous(expand = expansion(mult = 0)) + # remove padding to y axis
+  scale_x_continuous(expand = expansion(mult = 0)) # remove padding to x axis
+
+# Combine the two plots
+com_plot <- cowplot::plot_grid(y_axis, plot,
+                   align = "hv",
+                   axis = "tb",
+                   rel_widths = c(1,4))
   
   # Save your plot to the directory with name "plot_i.png"
   plot_filename <- paste0("plot_", i, ".png")
   ggsave(file.path(save_dir, plot_filename), 
-         plot = plot, 
+         plot = com_plot, 
          width = 1022/90, 
          height = 576/90, 
          units = "in", 
@@ -320,7 +432,7 @@ for (i in 2:10) {
   assign(paste0("plot_", i), plot, envir = .GlobalEnv)
 
   # Add the plot to the list
-  plot_list[[i - 1]] <- plot
+  plot_list[[i - 1]] <- com_plot
   
   # Print a message indicating completion for each iteration
   cat("Plot", i, "completed.\n")
@@ -331,9 +443,8 @@ for (i in 2:10) {
 
 Now, I quickly have 9 graphs with the PI's desired specifications! Exciting!
 
-```{r echo=FALSE, output=TRUE, fig.width=11.35, fig.height=35, out.width="100%", out.height="100%"}
-library(cowplot)
-
+```{r fig.width=11.35, fig.height=45, out.width="100%", out.height="100%"}
+# Display all 9 plots
 plot_grid(plot_list[[1]], plot_list[[2]], plot_list[[3]], 
           plot_list[[4]], plot_list[[5]], plot_list[[6]], 
           plot_list[[7]], plot_list[[8]], plot_list[[9]], 
@@ -342,3 +453,6 @@ plot_grid(plot_list[[1]], plot_list[[2]], plot_list[[3]],
           axis = 'l')
 ```
 
+There are definitely some pros and cons to plots like these. There is a lot mapped onto one plot here -- decision option, decision attribute, a positive and negative score for each combination, as well as the importance of each attribute. This is nice because it minimizes how much we show a viewer at once, but it could also potentially overwhelm the viewer visually. This chart is also similar to a traditional method of information dissemination, a matrix with text. This might feel familiar to viewers, but with text in the matrix being replaced by a visual. This layout also allows viewers to easily compare attributes within a single option, or a single attribute across all options. However, I fear that holistically users will have a difficult time comparing total positive (green) area between options, making a final decision difficult. A vertical approach might help with that, while sacrificing some of the other positives of this layout. 
+
+I'm excited to see how trials of this visualization go!
