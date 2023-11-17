@@ -7,10 +7,12 @@ These examples are published on [Quarto Pub](https://elkewind.quarto.pub/).
 **Data Wrangling**<br>
 [Cleaning and Joining Data from FishBase and IUCN RedList in R](https://elkewind.quarto.pub/cleaning-and-joining-data-from-fishbase-and-iucn-redlist/)<br>
 [Data Visualization Examples in Python](https://elkewind.quarto.pub/data-visualization-examples-in-python/)
+[Creating Many ggplots from One Excel File in R](https://elkewind.quarto.pub/creating-many-ggplots-from-one-excel-file-in-r/)
 
 **Data Visualization**<br>
 [Data Visualization Examples in Python](https://elkewind.quarto.pub/data-visualization-examples-in-python/)
 [Mapping Locations for Kelp Aquaculture in R](https://elkewind.quarto.pub/mapping-locations-for-kelp-aquaculture-in-r/)
+[Creating Many ggplots from One Excel File in R](https://elkewind.quarto.pub/creating-many-ggplots-from-one-excel-file-in-r/)
 
 **Spatial Data**<br>
 [Creating a Mask for Raster Data in R](https://elkewind.quarto.pub/creating-a-mask-for-raster-data-in-r/)
