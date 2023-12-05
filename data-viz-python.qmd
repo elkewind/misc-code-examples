@@ -5,6 +5,7 @@ format: html
 editor: source
 date: 2023-08-19
 toc: true
+jupyter: python3
 ---
 
 Description: Here I use Python libraries to visualize different types of data from the kelpGeoMod Data Repository.
@@ -73,7 +74,7 @@ These data come from the Santa Barbara Channel between 2014-2022. First, I want 
 aoi_84 = aoi.to_crs(epsg=4326)
 
 # Create a Folium map centered around the AOI
-m = folium.Map(location=[aoi_84['geometry'].centroid.y.mean(), aoi_84['geometry'].centroid.x.mean()], zoom_start=9, tiles='Stamen Terrain')
+m = folium.Map(location=[aoi_84['geometry'].centroid.y.mean(), aoi_84['geometry'].centroid.x.mean()], zoom_start=9, tiles='openstreetmap')
 
 # Define a function to set shape color based on properties
 def style_function(feature):
@@ -321,6 +322,7 @@ average_2016 = pd.DataFrame({'Nutrient': average_2016.index, 'Concentration': av
 # Create the bar chart
 fig, ax = plt.subplots(figsize=(8, 5))  # Adjusted figsize
 ax.set_facecolor('#333333')  # Set the background color for the plotting area
+fig.set_facecolor('#333333') 
 
 colors = ['#D28077', '#93C2E2', '#036554', '#BCD79D']
 
