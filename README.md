@@ -15,6 +15,7 @@ These examples are published on [Quarto Pub](https://elkewind.quarto.pub/).
 [Creating Many ggplots from One Excel File in R](https://elkewind.quarto.pub/creating-many-ggplots-from-one-excel-file-in-r/)<br>
 
 **Spatial Data**<br>
+[Exploring Changes in Iowa’s Cropland with Google Earth Engine and Python](https://elkewind.quarto.pub/exploring-changes-in-iowas-cropland-with-google-earth-engine-and-python/)<br>
 [Creating a Mask for Raster Data in R](https://elkewind.quarto.pub/creating-a-mask-for-raster-data-in-r/)<br>
 [Mapping Locations for Kelp Aquaculture in R](https://elkewind.quarto.pub/mapping-locations-for-kelp-aquaculture-in-r/)<br>
 
