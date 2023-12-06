@@ -13,6 +13,7 @@ These examples are published on [Quarto Pub](https://elkewind.quarto.pub/).
 [Data Visualization Examples in Python](https://elkewind.quarto.pub/data-visualization-examples-in-python/)<br>
 [Mapping Locations for Kelp Aquaculture in R](https://elkewind.quarto.pub/mapping-locations-for-kelp-aquaculture-in-r/)<br>
 [Creating Many ggplots from One Excel File in R](https://elkewind.quarto.pub/creating-many-ggplots-from-one-excel-file-in-r/)<br>
+[Wrapped Who? Visualizing my Spotify Data in Tableau](https://elkewind.quarto.pub/wrapped-who-visualizing-my-spotify-data-in-tableau/)<br>
 
 **Spatial Data**<br>
 [Exploring Changes in Iowa’s Cropland with Google Earth Engine and Python](https://elkewind.quarto.pub/exploring-changes-in-iowas-cropland-with-google-earth-engine-and-python/)<br>
