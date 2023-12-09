@@ -6,6 +6,9 @@ editor: source
 date: 2023-12-04
 toc: true
 jupyter: python3
+output:
+  execute:
+    code: true
 ---
 
 Description: Here I use Python to access the Google Earth Engine API and explore how Iowa's cropland has changed between 2003 and 2022.
@@ -71,7 +74,7 @@ cropland_22 = crop_dat \
     .clip(iowa)
 ```
 
-Let's explore the cropland use in Iowa in 2003 and cropland use in Iowa in 2022.
+Let's explore the cropland use in Iowa in 2003.
 
 ```{python}
 #| warning: false
@@ -94,6 +97,8 @@ display(Map_03)
 
 ```
 
+Let's explore the cropland use in Iowa in 2022.
+
 ```{python}
 # Create a map
 Map_22 = geemap.Map()
@@ -112,33 +117,6 @@ Map_22.add_legend(title="USDA Land and Crop Classification", builtin_legend='USD
 # Display the map
 display(Map_22)
 ```
-
-Let’s explore the cropland use in Iowa in 2003 (left) and cropland use in Iowa in 2022 (right) at the same time.
-
-```{python}
-# # Create basemap centered around iowa
-# Map_split = geemap.Map()
-# Map_split.addLayer(iowa)
-# Map_split.centerObject(iowa, 6)
-# 
-# # Change basemap
-# Map_split.add_basemap('SATELLITE')
-# 
-# # Add layer for 2003
-# left = geemap.ee_tile_layer(cropland_03, crop_vis, 'Landcover')
-# 
-# # Add layer for 2022
-# right = geemap.ee_tile_layer(cropland_22, crop_vis, 'Landcover')
-# 
-# # Add tiles to the map
-# Map_split.split_map(left, right)
-# 
-# # Add legend
-# Map_split.add_legend(title="USDA Land and Crop Classification", builtin_legend='USDA/NASS/CDL')
-# 
-# Map_split # view map
-```
-
 
 I used the image_area_by_group function from geepmap to calculate the area of each type of crop in each year. Now I have tabular data I can work with as well.
 
