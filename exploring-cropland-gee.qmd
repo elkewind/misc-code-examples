@@ -97,6 +97,12 @@ display(Map_03)
 
 ```
 
+::: {.callout-note}
+Quarto does not seem to consistently render GEE maps. This is something I am still trouble-shooting. Because of this, I have included pictures of the outputs, and a [link to the Jupyter Notebook.](https://github.com/elkewind/misc-code-examples/blob/main/exploring-cropland-gee.ipynb)
+:::
+
+![](images/crops_03.png)
+
 Let's explore the cropland use in Iowa in 2022.
 
 ```{python}
@@ -117,6 +123,8 @@ Map_22.add_legend(title="USDA Land and Crop Classification", builtin_legend='USD
 # Display the map
 display(Map_22)
 ```
+
+![](images/crops_22.png)
 
 I used the image_area_by_group function from geepmap to calculate the area of each type of crop in each year. Now I have tabular data I can work with as well.
 
