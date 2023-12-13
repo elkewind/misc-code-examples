@@ -38,9 +38,9 @@ library(cowplot)
 ```
 
 ```{r include=FALSE}
-data_dir <- "/Users/elkewindschitl/Documents/data-sci/misc-data-projs"
-output_directory <- "/Users/elkewindschitl/Documents/data-sci/misc-data-projs/quarto-pub-paul-data/"
-save_dir <- "/Users/elkewindschitl/Documents/data-sci/misc-data-projs/quarto-pub-paul-data/"
+data_dir <- "/Users/elkewindschitl/Documents/data-sci/misc-data-projs/jdscl"
+output_directory <- "/Users/elkewindschitl/Documents/data-sci/misc-data-projs/jdscl/quarto-pub-paul-data/"
+save_dir <- "/Users/elkewindschitl/Documents/data-sci/misc-data-projs/jdscl/quarto-pub-paul-data/"
 ```
 
 Next, I read in the data, do some slight cleaning, and select for the columns I want to keep.
@@ -452,6 +452,8 @@ plot_grid(plot_list[[1]], plot_list[[2]], plot_list[[3]],
           align = 'hv',
           axis = 'l')
 ```
+
+I then went on to create a private R package on GitHub for the lab to use to recreate these plots very quickly. I made a few tweaks to my code here to accommodate plots of any dimension, not just 4x5. I then created two functions -- one for reading in the data and plotting, and a second for saving the plots. Now, the Judgement, Decision, & Social Comparison Lab can quickly reproduce these plots for testing their efficacy when decision-making.
 
 There are definitely some pros and cons to plots like these. There is a lot mapped onto one plot here -- decision option, decision attribute, a positive and negative score for each combination, as well as the importance of each attribute. This is nice because it minimizes how much we show a viewer at once, but it could also potentially overwhelm the viewer visually. This chart is also similar to a traditional method of information dissemination, a matrix with text. This might feel familiar to viewers, but with text in the matrix being replaced by a visual. This layout also allows viewers to easily compare attributes within a single option, or a single attribute across all options. However, I fear that holistically users will have a difficult time comparing total positive (green) area between options, making a final decision difficult. A vertical approach might help with that, while sacrificing some of the other positives of this layout. 
 
