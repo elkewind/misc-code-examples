@@ -21,7 +21,7 @@ Who needs Spotify Wrapped when you can access your own data any time you'd like?
 
 ## Methods:
 
-I started by wrangling my data in R. I wanted to get the .json file to a .csv for ease of use in Tableau. First, thought I load a few libraries to help. *dplyr* helps with tidying data. *jsonlite* is how I read the .json file and convert to tabular. *lubridate* allows me to clean date-time data, and *kableExtra* is how I make my tables here.
+I started by wrangling my data in R. I wanted to get the .json file to a .csv for ease of use in Tableau. First, though, I load a few libraries to help. *dplyr* helps with tidying data. *jsonlite* is how I read the .json file and convert to tabular. *lubridate* allows me to clean date-time data, and *kableExtra* is how I make my tables here.
 
 ### Getting started in R
 
@@ -104,7 +104,7 @@ This is still a bit chaotic, so I aggregate to show minutes played per week of m
 
 ![](images/music/weekly-three-timeseries.png)
 
-I was curious about what some of these peaks were derived by. I searched the release dates of albums and singles I knew were released within this time frame. I added those dates as parameters and then added the parameters as reference lines. I am definitely a binge-listener, so some of these peaks make a lot of sense.
+I was curious about some of these peaks. I searched the release dates of albums and singles I knew were released within this time frame. I added those dates as parameters and then added the parameters as reference lines. I am definitely a binge-listener, so some of these peaks make a lot of sense.
 
 ![](images/music/annotated-timeseries.png)
 
